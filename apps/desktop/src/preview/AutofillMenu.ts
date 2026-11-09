@@ -21,6 +21,11 @@ import { guestEditMenuItems } from "./GuestContextMenu.ts";
 
 const AUTOFILL_WORLD_ID = 1003;
 
+class PreviewAutofillMenuError extends Schema.TaggedError<PreviewAutofillMenuError>()(
+  "PreviewAutofillMenuError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
 const decodeCandidates = Schema.decodeUnknownOption(Schema.Array(LoginFieldCandidate));
 const decodeField = Schema.decodeUnknownOption(FocusedLoginField);
 
@@ -29,9 +34,10 @@ const runInGuest = <A>(
   code: string,
   decode: (value: unknown) => Option.Option<A>,
 ) =>
-  Effect.tryPromise(() =>
-    guest.executeJavaScriptInIsolatedWorld(AUTOFILL_WORLD_ID, [{ code }], true),
-  ).pipe(
+  Effect.tryPromise({
+    try: () => guest.executeJavaScriptInIsolatedWorld(AUTOFILL_WORLD_ID, [{ code }], true),
+    catch: (cause) => new PreviewAutofillMenuError({ operation: "runInGuest", cause }),
+  }).pipe(
     Effect.timeoutOption("2 seconds"),
     Effect.map((value) => Option.flatMap(value, decode)),
     Effect.orElseSucceed(() => Option.none<A>()),
@@ -71,15 +77,18 @@ export const openAutofillMenu = Effect.fn("PreviewAutofillMenu.open")(function* 
   });
   if (!point || guest.isDestroyed() || window.isDestroyed()) return unavailable;
 
-  return yield* Effect.try(() => {
-    Electron.Menu.buildFromTemplate(
-      guestEditMenuItems({
-        canCut: field.value.canCopy,
-        canCopy: field.value.canCopy,
-        canPaste: true,
-        canSelectAll: field.value.hasValue,
-      }),
-    ).popup({ window, frame: guest.mainFrame, x: point.x, y: point.y });
-    return "opened" as const;
+  return yield* Effect.try({
+    try: () => {
+      Electron.Menu.buildFromTemplate(
+        guestEditMenuItems({
+          canCut: field.value.canCopy,
+          canCopy: field.value.canCopy,
+          canPaste: true,
+          canSelectAll: field.value.hasValue,
+        }),
+      ).popup({ window, frame: guest.mainFrame, x: point.x, y: point.y });
+      return "opened" as const;
+    },
+    catch: (cause) => new PreviewAutofillMenuError({ operation: "popup", cause }),
   }).pipe(Effect.orElseSucceed(() => unavailable));
 });
