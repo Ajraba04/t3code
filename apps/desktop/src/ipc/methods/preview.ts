@@ -6,6 +6,8 @@ import {
   DesktopPreviewArtifactInputSchema,
   DesktopPreviewConfigInputSchema,
   DesktopPreviewNavigateInputSchema,
+  DesktopPreviewOpenAutofillMenuInputSchema,
+  DesktopPreviewAutofillMenuResultSchema,
   DesktopPreviewRecordingArtifactSchema,
   DesktopPreviewRecordingSaveInputSchema,
   DesktopPreviewRegisterWebviewInputSchema,
@@ -34,6 +36,7 @@ import * as Option from "effect/Option";
 import * as NodeURL from "node:url";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import { openAutofillMenu as openGuestAutofillMenu } from "../../preview/AutofillMenu.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import { normalizeCaptureFailure } from "../../preview/captureErrors.ts";
@@ -211,6 +214,14 @@ const openDevTools = tabMethod(
   "desktop.ipc.preview.openDevTools",
   (manager, tabId) => manager.openDevTools(tabId),
 );
+const openAutofillMenu = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_OPEN_AUTOFILL_MENU_CHANNEL,
+  payload: DesktopPreviewOpenAutofillMenuInputSchema,
+  result: DesktopPreviewAutofillMenuResultSchema,
+  handler: Effect.fn("desktop.ipc.preview.openAutofillMenu")(function* (input, event) {
+    return yield* openGuestAutofillMenu(input, event?.sender.id);
+  }),
+});
 const cancelPickElement = tabMethod(
   IpcChannels.PREVIEW_CANCEL_PICK_ELEMENT_CHANNEL,
   "desktop.ipc.preview.cancelPickElement",
@@ -460,6 +471,7 @@ export const methods = [
   setAudioMuted,
   setShown,
   openDevTools,
+  openAutofillMenu,
   clearCookies,
   clearCache,
   getPreviewConfig,

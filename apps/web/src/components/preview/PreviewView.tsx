@@ -65,6 +65,7 @@ import { primaryServerKeybindingsAtom } from "~/state/server";
 import { PreviewAnnotationSpeech } from "./PreviewAnnotationSpeech";
 import { previewBridge } from "./previewBridge";
 import { subscribePreviewAction } from "./previewActionBus";
+import { openPreviewAutofillMenu, previewAutofillAvailable } from "./previewAutofill";
 import { closePreviewSession } from "./closePreviewSession";
 import { openPreviewSession } from "./openPreviewSession";
 import { showPreviewPopup } from "./showPreviewPopup";
@@ -481,6 +482,26 @@ export function PreviewView({
         }
       : null;
 
+  const handleFillPassword = () => {
+    if (!previewAutofillAvailable || isServerTab || !runtimeTabId) return;
+    if (isUnreachable || !desktopOverlay?.hasWebContents) return;
+    void openPreviewAutofillMenu(runtimeTabId).then(
+      (result) => {
+        if (result === "opened") return;
+        toastManager.add({
+          type: "info",
+          title:
+            result === "no-field"
+              ? "No login field on this page"
+              : "Apple Passwords is unavailable on this page",
+        });
+      },
+      () => {
+        toastManager.add({ type: "error", title: "Unable to open Apple Passwords" });
+      },
+    );
+  };
+
   const handleNativePictureInPicture = () => {
     if (!previewBridge || !runtimeTabId) return;
     const operation = desktopOverlay?.pictureInPicture
@@ -872,6 +893,9 @@ export function PreviewView({
         case "reset-zoom":
           handleResetZoom();
           return;
+        case "fill-password":
+          handleFillPassword();
+          return;
         case "toggle-panel":
           return;
       }
@@ -883,6 +907,7 @@ export function PreviewView({
     const unsubscribeAction = subscribePreviewAction((action) => onPreviewAction(action));
     const unsubscribeMenu = window.desktopBridge?.onMenuAction((action) => {
       if (action === "preview.focusUrl") onPreviewAction("focus-url");
+      if (action === "preview.fillPassword") onPreviewAction("fill-password");
     });
     return () => {
       unsubscribeAction();
@@ -927,6 +952,10 @@ export function PreviewView({
         pictureInPictureDisabled={
           isUnreachable || (!isServerTab && !desktopOverlay?.hasWebContents)
         }
+        onFillPassword={
+          previewAutofillAvailable && tabId && !isServerTab ? handleFillPassword : undefined
+        }
+        fillPasswordDisabled={!desktopOverlay?.hasWebContents || isUnreachable}
         onPickElement={previewBridge && tabId && !isServerTab ? handlePickElement : undefined}
         pickActive={pickActive}
         pickDisabled={!tabId || isUnreachable}

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Camera,
   ExternalLink,
+  KeyRound,
   MousePointerClick,
   PictureInPicture2,
 } from "lucide-react";
@@ -44,6 +45,8 @@ interface Props {
   pickActive?: boolean | undefined;
   pickDisabled?: boolean | undefined;
   pickDisabledReason?: string | undefined;
+  onFillPassword?: (() => void) | undefined;
+  fillPasswordDisabled?: boolean | undefined;
   trailingActions?: ReactNode;
   leadingActions?: ReactNode;
 }
@@ -73,6 +76,8 @@ export function PreviewChromeRow({
   pickActive,
   pickDisabled,
   pickDisabledReason,
+  onFillPassword,
+  fillPasswordDisabled,
   trailingActions,
   leadingActions,
 }: Props) {
@@ -210,6 +215,25 @@ export function PreviewChromeRow({
           ) : null}
         </InputGroup>
 
+        {onFillPassword ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onFillPassword}
+                  disabled={fillPasswordDisabled}
+                  aria-label="Fill from Apple Passwords"
+                  type="button"
+                />
+              }
+            >
+              <KeyRound />
+            </TooltipTrigger>
+            <TooltipPopup>Fill from Apple Passwords</TooltipPopup>
+          </Tooltip>
+        ) : null}
         {onPickElement ? (
           <Tooltip>
             <TooltipTrigger
