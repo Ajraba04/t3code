@@ -963,6 +963,28 @@ export const DesktopPreviewRegisterWebviewInputSchema = Schema.Struct({
   webContentsId: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 
+const FiniteNumber = Schema.Number.check(Schema.isFinite());
+
+/** The webview's rect in host CSS pixels anchors the menu in window coordinates. */
+export const DesktopPreviewOpenAutofillMenuInputSchema = Schema.Struct({
+  webContentsId: Schema.Int.check(Schema.isGreaterThan(0)),
+  webviewRect: Schema.Struct({
+    x: FiniteNumber,
+    y: FiniteNumber,
+    width: FiniteNumber,
+    height: FiniteNumber,
+  }),
+});
+export type DesktopPreviewOpenAutofillMenuInput =
+  typeof DesktopPreviewOpenAutofillMenuInputSchema.Type;
+
+export const DesktopPreviewAutofillMenuResultSchema = Schema.Literals([
+  "opened",
+  "no-field",
+  "unavailable",
+]);
+export type DesktopPreviewAutofillMenuResult = typeof DesktopPreviewAutofillMenuResultSchema.Type;
+
 export const DesktopPreviewNavigateInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
   url: Schema.String,
@@ -1253,6 +1275,10 @@ export interface DesktopPreviewBridge {
   /** Tells the tab's server whether its webview is on screen. */
   setShown: (tabId: string, shown: boolean) => Promise<void>;
   openDevTools: (tabId: string) => Promise<void>;
+  /** macOS only; absent elsewhere. Opens the native context menu at the page's login field. */
+  openAutofillMenu?: (
+    input: DesktopPreviewOpenAutofillMenuInput,
+  ) => Promise<DesktopPreviewAutofillMenuResult>;
   clearCookies: (environmentId: EnvironmentId, profileId?: string) => Promise<void>;
   clearCache: (environmentId: EnvironmentId, profileId?: string) => Promise<void>;
   getPreviewConfig: (

@@ -60,6 +60,13 @@ or “Copy Number”. They copy the selected PR and leave terminal input alone.
 Without a PR, `mod+shift+c` copies the thread itself, which pastes into a
 composer as a thread chip.
 
+## Fill passwords in the browser
+
+On macOS, press `mod+alt+p` with the browser focused, or click the key button in
+its toolbar, to open the AutoFill menu at the page's login field. Choose
+**AutoFill → Passwords…** to fill a login saved in Apple Passwords. Change the
+chord under **Preview: Fill Password**.
+
 ## Find in a diff
 
 Click into a diff in the Diff panel or a pull request's Code tab, then press
