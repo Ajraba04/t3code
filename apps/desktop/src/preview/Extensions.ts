@@ -127,7 +127,7 @@ export class BrowserExtensions extends Context.Service<
      */
     readonly attach: (session: ExtensionSession, profileId: string) => Effect.Effect<void>;
   }
->()("@t3tools/desktop/preview/BrowserExtensions") {}
+>()("@t3tools/desktop/preview/Extensions/BrowserExtensions") {}
 
 interface AttachedSession {
   readonly session: ExtensionSession;
@@ -291,16 +291,25 @@ export const make = Effect.gen(function* () {
   return BrowserExtensions.of({
     list,
     addFolder,
-    setEnabled: (profileId, extensionId, enabled) =>
-      mutate(profileId, (document) =>
+    setEnabled: Effect.fn("BrowserExtensions.setEnabled")(function* (
+      profileId: string,
+      extensionId: string,
+      enabled: boolean,
+    ) {
+      return yield* mutate(profileId, (document) =>
         updateStoredExtension(document, profileId, extensionId, { enabled }),
-      ).pipe(Effect.withSpan("BrowserExtensions.setEnabled")),
-    remove: (profileId, extensionId) =>
-      mutate(profileId, (document) =>
+      );
+    }),
+    remove: Effect.fn("BrowserExtensions.remove")(function* (
+      profileId: string,
+      extensionId: string,
+    ) {
+      return yield* mutate(profileId, (document) =>
         updateStoredExtension(document, profileId, extensionId, "remove").pipe(
           Effect.tap(() => Effect.sync(() => loadErrors.delete(extensionId))),
         ),
-      ).pipe(Effect.withSpan("BrowserExtensions.remove")),
+      );
+    }),
     checkPolicy,
     attach,
   });

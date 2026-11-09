@@ -58,7 +58,7 @@ const setup = Effect.gen(function* () {
   return { dir, folders, service };
 });
 
-const policy = (limits: ManagedPolicyDocument["limits"]): ManagedPolicyDocument => ({
+const policy = (limits: NonNullable<ManagedPolicyDocument["limits"]>): ManagedPolicyDocument => ({
   schemaVersion: 1,
   organization: "Example Corp",
   limits,

@@ -78,7 +78,7 @@ export const readBrowserExtensionsDocument = Effect.fn("BrowserExtensionsStore.r
 ) {
   const fs = yield* FileSystem.FileSystem;
   const raw = yield* fs.readFileString(filePath).pipe(
-    Effect.map(Option.some),
+    Effect.asSome,
     Effect.catchIf(
       (error) => error.reason._tag === "NotFound",
       () => Effect.succeed(Option.none<string>()),

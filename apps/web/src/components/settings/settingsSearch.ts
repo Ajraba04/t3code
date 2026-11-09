@@ -1010,6 +1010,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "browser-profiles",
   },
   {
+    id: "browser-extensions",
+    title: "Browser extensions",
+    to: "/settings/browser",
+    targetId: "browser-extensions",
+    desktopOnly: true,
+    searchTerms: ["chrome extension unpacked folder manifest devtools add-on plugin"],
+  },
+  {
     id: "browser-default-viewport",
     title: "Default browser viewport",
     to: "/settings/browser",
