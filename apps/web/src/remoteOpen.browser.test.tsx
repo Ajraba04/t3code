@@ -31,8 +31,8 @@ function Resolution() {
 }
 
 it("marks only matching-home bearer execution and updates provenance when the mode stays local", async () => {
-  const getHomeEnvironmentId = vi.fn<() => Promise<string | null>>().mockResolvedValue(null);
-  vi.stubGlobal("desktopBridge", { getHomeEnvironmentId });
+  const getHostEnvironmentId = vi.fn<() => Promise<string | null>>().mockResolvedValue(null);
+  vi.stubGlobal("desktopBridge", { getHostEnvironmentId });
   using _cleanup = {
     [Symbol.dispose]() {
       vi.unstubAllGlobals();
@@ -55,9 +55,9 @@ it("marks only matching-home bearer execution and updates provenance when the mo
     </AppAtomRegistryProvider>,
   );
   await expect.element(screen.getByRole("status")).toHaveTextContent("local-exec/false");
-  await vi.waitFor(() => expect(getHomeEnvironmentId).toHaveResolvedWith(null));
+  await vi.waitFor(() => expect(getHostEnvironmentId).toHaveResolvedWith(null));
 
-  getHomeEnvironmentId.mockResolvedValue(environmentId);
+  getHostEnvironmentId.mockResolvedValue(environmentId);
   appAtomRegistry.set(state.presentationAtom!, presentation("paired-service"));
   await expect.element(screen.getByRole("status")).toHaveTextContent("local-exec/true");
 

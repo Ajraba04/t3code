@@ -117,7 +117,7 @@ const desktopHomeEnvironmentIdAtom = Atom.family((environmentId: EnvironmentId) 
     get.addFinalizer(() => {
       active = false;
     });
-    const read = window.desktopBridge?.getHomeEnvironmentId;
+    const read = window.desktopBridge?.getHostEnvironmentId;
     read?.().then(
       (id) => {
         if (active && id !== null) get.setSelf(id);

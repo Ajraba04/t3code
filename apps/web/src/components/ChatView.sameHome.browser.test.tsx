@@ -1,10 +1,11 @@
 import { createMemoryHistory } from "@tanstack/react-router";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { AsyncResult } from "effect/reactivity";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import type * as Context from "effect/Context";
 import { expect, it, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import { AppRoot } from "~/AppRoot";
 import "~/index.css";
@@ -22,7 +23,24 @@ import {
 } from "../../test/fakeEnvironment";
 import { render } from "../../test/render";
 
-const pickerState = vi.hoisted(() => ({ sameHome: false }));
+const pickerState = vi.hoisted(() => ({ sameHome: false, openEditor: vi.fn() }));
+vi.mock(import("~/state/server"), async (original) => {
+  const actual = await original();
+  const { Atom } = await import("effect/reactivity");
+  const editors = Atom.make(["vscode"] as const);
+  return { ...actual, serverAvailableEditorsAtom: () => editors };
+});
+vi.mock(import("~/state/use-atom-command"), async (original) => {
+  const actual = await original();
+  const { shellEnvironment } = await import("~/state/shell");
+  return {
+    ...actual,
+    useAtomCommand: ((command, options) => {
+      const run = actual.useAtomCommand(command, options);
+      return Object.is(command, shellEnvironment.openInEditor) ? pickerState.openEditor : run;
+    }) as typeof actual.useAtomCommand,
+  };
+});
 vi.mock(import("~/state/environments"), async (original) => {
   const actual = await original();
   return {
@@ -63,9 +81,10 @@ vi.mock(import("~/rpc/requestLatencyState"), async (original) => ({
   trackRpcRequestSent: () => {},
 }));
 
-it("keeps workspace editor controls and its shortcut target for a same-home service with another primary", async () => {
+it("opens the selected same-home workspace by shortcut with another primary", async () => {
   await page.viewport(1400, 900);
   pickerState.sameHome = true;
+  pickerState.openEditor.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   using _reset = {
     [Symbol.dispose]() {
       pickerState.sameHome = false;
@@ -93,5 +112,22 @@ it("keeps workspace editor controls and its shortcut target for a same-home serv
   const toggle = page.getByRole("button", { name: "Toggle thread details panel", exact: true });
   if (toggle.element().getAttribute("aria-pressed") === "false") await toggle.click();
   await expect.element(page.getByRole("group", { name: "Open in editor" })).toBeVisible();
-  expect(document.querySelector("[data-open-favorite-editor]")).not.toBeNull();
+  await expect
+    .element(page.getByRole("button", { name: "Open in VS Code", exact: true }))
+    .toBeEnabled();
+  await userEvent.keyboard("{Control>}o{/Control}");
+  await vi.waitFor(() =>
+    expect(pickerState.openEditor).toHaveBeenCalledExactlyOnceWith({
+      environmentId: ENVIRONMENT_ID,
+      input: { cwd: "/workspace/render", editor: "vscode" },
+    }),
+  );
+  await toggle.click();
+  await expect.element(page.getByRole("group", { name: "Open in editor" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Control>}o{/Control}");
+  await vi.waitFor(() => expect(pickerState.openEditor).toHaveBeenCalledTimes(2));
+  expect(pickerState.openEditor).toHaveBeenLastCalledWith({
+    environmentId: ENVIRONMENT_ID,
+    input: { cwd: "/workspace/render", editor: "vscode" },
+  });
 });
