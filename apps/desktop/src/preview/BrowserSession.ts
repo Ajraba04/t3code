@@ -5,11 +5,13 @@ import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
+import * as BrowserExtensions from "./Extensions.ts";
 
 const PREVIEW_PARTITION_PREFIX = "persist:t3code-preview-";
 /** Ephemeral partitions omit persist: but retain a product prefix so the webview gate recognizes them. */
@@ -191,6 +193,8 @@ const previewHostWindow = (guest: WebContents | null): BrowserWindow | undefined
 export const make = Effect.gen(function* BrowserSessionMake() {
   const crypto = yield* Digest.Digest;
   const electronDialog = yield* ElectronDialog.ElectronDialog;
+  // Optional so tests and tools that only need partitions do not have to provide a loader.
+  const extensions = yield* Effect.serviceOption(BrowserExtensions.BrowserExtensions);
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   // One prompt at a time, so a page cannot stack dialogs by looping a deep link.
   let permissionPromptOpen = false;
@@ -283,7 +287,7 @@ export const make = Effect.gen(function* BrowserSessionMake() {
     namespace?: BrowserSessionPartitionNamespace,
   ) {
     const partition = yield* getPartition(scope, persistent, namespace);
-    return yield* SynchronizedRef.modifyEffect(sessionsRef, (sessions) => {
+    const browserSession = yield* SynchronizedRef.modifyEffect(sessionsRef, (sessions) => {
       const existing = sessions.get(partition);
       if (existing) return Effect.succeed([existing, sessions] as const);
       return Effect.try({
@@ -373,6 +377,12 @@ export const make = Effect.gen(function* BrowserSessionMake() {
           }),
       });
     });
+    // Awaited on every call so no guest attaches before its profile's content scripts are loaded.
+    const profileId = BrowserExtensions.profileIdForPartitionScope(scope, namespace);
+    if (persistent && profileId !== undefined && Option.isSome(extensions)) {
+      yield* extensions.value.attach(browserSession, profileId);
+    }
+    return browserSession;
   });
 
   return BrowserSession.of({

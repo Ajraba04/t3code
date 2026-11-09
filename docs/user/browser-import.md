@@ -18,3 +18,19 @@ the import wizard afterward. You can revoke Full Disk Access once the import is 
 On Windows, import supports Firefox, Zen, and Helium profiles that use standard profile encryption.
 Other Chromium-based browsers use app-bound encryption and cannot be imported. Partitioned cookies
 are skipped on all platforms.
+
+## Extensions
+
+The desktop app can load unpacked Chrome extensions into a browser profile. Open
+**Settings → Browser → Extensions**, pick the profile, choose **Add folder**, and select the folder
+that holds the extension's `manifest.json`. Use the switch to turn an extension off without
+removing it. Changes apply to open tabs without restarting.
+
+Extensions run in every tab of that profile, including tabs an agent opens, so they can change what
+an agent sees, and an agent can read what they fill into a page. Use a separate profile for
+extensions you don't want near agent work. Incognito never loads extensions.
+
+T3 Code's browser supports only part of Chrome's extension API, mainly what developer tools
+extensions use. Extensions that need toolbar popups, request blocking, or a companion desktop app
+may load but not work. Packed `.crx` files and the Chrome Web Store are not supported. Web and
+mobile clients use the server's browser, which does not load extensions.

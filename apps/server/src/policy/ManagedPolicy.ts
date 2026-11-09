@@ -135,6 +135,7 @@ function summarizeLimits(
     webhookTasks,
     telemetry,
     browserCookieImport,
+    browserExtensions,
     providers,
     updates,
   } = document.limits ?? {};
@@ -146,6 +147,7 @@ function summarizeLimits(
     ...(webhookTasks === undefined ? {} : { webhookTasks }),
     ...(telemetry === undefined ? {} : { telemetry }),
     ...(browserCookieImport === undefined ? {} : { browserCookieImport }),
+    ...(browserExtensions === undefined ? {} : { browserExtensions }),
     ...(providers?.allowedDrivers === undefined && Object.keys(lockedInstanceFields).length === 0
       ? {}
       : {
