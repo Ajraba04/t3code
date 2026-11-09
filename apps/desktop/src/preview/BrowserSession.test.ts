@@ -1,8 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import { beforeEach, vi } from "vite-plus/test";
 
 const { fromPartition, sessions } = vi.hoisted(() => ({
@@ -25,15 +29,48 @@ const { fromWebContents } = vi.hoisted(() => ({
   fromWebContents: vi.fn<(webContents: unknown) => unknown>(() => null),
 }));
 
+const { cdpCommands, helperPartitions, closedHelpers } = vi.hoisted(() => ({
+  cdpCommands: [] as Array<[method: string, params: unknown]>,
+  helperPartitions: [] as Array<string | undefined>,
+  closedHelpers: { count: 0 },
+}));
+
 vi.mock("electron", () => ({
   BrowserWindow: { fromWebContents },
+  // The cookie helper page: its debugger answers with an empty jar and records what is set.
+  WebContentsView: class {
+    readonly webContents;
+    constructor(options: { readonly webPreferences?: { readonly partition?: string } }) {
+      helperPartitions.push(options.webPreferences?.partition);
+      let destroyed = false;
+      this.webContents = {
+        loadURL: () => Promise.resolve(),
+        isDestroyed: () => destroyed,
+        close: () => {
+          destroyed = true;
+          closedHelpers.count += 1;
+        },
+        debugger: {
+          attach: () => undefined,
+          sendCommand: (method: string, params?: unknown) => {
+            cdpCommands.push([method, params]);
+            return Promise.resolve(method === "Network.getAllCookies" ? { cookies: [] } : {});
+          },
+        },
+      };
+    }
+  },
   session: {
     fromPartition,
   },
 }));
 
+import * as DesktopShutdown from "../app/DesktopShutdown.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
+import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
+import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import * as SessionCookieSnapshot from "./SessionCookieSnapshot.ts";
 
 const { showMessageBox } = vi.hoisted(() => ({
   showMessageBox: vi.fn<
@@ -47,9 +84,71 @@ const layerDialog = Layer.succeed(ElectronDialog.ElectronDialog, {
     Effect.sync(() => ({ response: showMessageBox(options, owner), checkboxChecked: false })),
   showErrorBox: () => Effect.void,
 });
-const layer = BrowserSession.layer.pipe(
-  Layer.provide(Layer.merge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer), layerDialog)),
+const layerSafeStorage = Layer.succeed(
+  ElectronSafeStorage.ElectronSafeStorage,
+  ElectronSafeStorage.ElectronSafeStorage.of({
+    isEncryptionAvailable: Effect.succeed(true),
+    encryptString: (value) => Effect.succeed(new TextEncoder().encode(value)),
+    decryptString: (value) => Effect.succeed(new TextDecoder().decode(value)),
+    selectedStorageBackend: Effect.succeedNone,
+  }),
 );
+const layerWith = (clientSettings = DesktopClientSettings.layerTest()) =>
+  BrowserSession.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        NodeCrypto.layer,
+        layerDialog,
+        layerSafeStorage,
+        DesktopShutdown.layer,
+        clientSettings,
+      ),
+    ),
+  );
+const layer = layerWith();
+
+const signedIn: SessionCookieSnapshot.CdpCookie = {
+  name: "PHPSESSID",
+  value: "abc",
+  domain: "app.test",
+  path: "/",
+  secure: false,
+  httpOnly: true,
+  session: true,
+  sameSite: "Lax",
+};
+
+/** A persistent partition whose storage directory already holds a snapshot of `signedIn`. */
+const withSnapshot = Effect.fnUntraced(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const storagePath = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-partition-" });
+  yield* SessionCookieSnapshot.save(storagePath, {
+    send: () => Promise.resolve({ cookies: [signedIn] }),
+  }).pipe(Effect.provide(layerSafeStorage));
+  cdpCommands.length = 0;
+  helperPartitions.length = 0;
+  closedHelpers.count = 0;
+  fromPartition.mockImplementation((partition: string) => {
+    const browserSession = {
+      clearCache: vi.fn(() => Promise.resolve()),
+      clearStorageData: vi.fn(() => Promise.resolve()),
+      getUserAgent: vi.fn(() => "Mozilla/5.0 Electron/41.5.0 t3code/0.0.27"),
+      setPermissionRequestHandler: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setUserAgent: vi.fn(),
+      webRequest: { onBeforeSendHeaders: vi.fn() },
+      storagePath,
+      cookies: { get: () => Promise.resolve([]), on: vi.fn() },
+    };
+    sessions.set(partition, browserSession);
+    return browserSession;
+  });
+  const setCookies = () =>
+    cdpCommands.filter(([method]) => method === "Network.setCookie").map(([, params]) => params);
+  return { setCookies, file: SessionCookieSnapshot.snapshotPath(path, storagePath), fileSystem };
+});
 
 describe("BrowserSession", () => {
   beforeEach(() => {
@@ -332,5 +431,68 @@ describe("BrowserSession", () => {
       });
       assert.strictEqual(vi.mocked(other.clearStorageData).mock.calls.length, 0);
     }).pipe(Effect.provide(layer)),
+  );
+  it.effect("restores a persistent partition's session cookies before guests may load", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { setCookies, file, fileSystem } = yield* withSnapshot();
+        const browserSessions = yield* BrowserSession.BrowserSession;
+        const partition = yield* browserSessions.getPartition("scope-a");
+        const browserSession = yield* browserSessions.getSession("scope-a");
+        yield* SessionCookieSnapshot.awaitRestored(browserSession);
+
+        assert.deepStrictEqual(setCookies(), [
+          {
+            name: "PHPSESSID",
+            value: "abc",
+            url: "http://app.test/",
+            path: "/",
+            secure: false,
+            httpOnly: true,
+            sameSite: "Lax",
+          },
+        ]);
+        // Restore uses its own helper page in the same partition and closes it afterwards.
+        assert.deepStrictEqual(helperPartitions, [partition]);
+        assert.strictEqual(closedHelpers.count, 1);
+
+        yield* browserSessions.clearCookies([partition]);
+        assert.isFalse(yield* fileSystem.exists(file));
+      }).pipe(Effect.provide(layer)),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("never restores into ephemeral partitions", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { setCookies } = yield* withSnapshot();
+        const browserSessions = yield* BrowserSession.BrowserSession;
+        const browserSession = yield* browserSessions.getSession("scope-a", false);
+        yield* SessionCookieSnapshot.awaitRestored(browserSession);
+        assert.deepStrictEqual(setCookies(), []);
+        assert.deepStrictEqual(helperPartitions, []);
+      }).pipe(Effect.provide(layer)),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("drops the snapshot instead of restoring when the setting is off", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { setCookies, file, fileSystem } = yield* withSnapshot();
+        const browserSessions = yield* BrowserSession.BrowserSession;
+        const browserSession = yield* browserSessions.getSession("scope-a");
+        yield* SessionCookieSnapshot.awaitRestored(browserSession);
+        assert.deepStrictEqual(setCookies(), []);
+        assert.isFalse(yield* fileSystem.exists(file));
+      }).pipe(
+        Effect.provide(
+          layerWith(
+            DesktopClientSettings.layerTest(
+              Option.some({ ...DEFAULT_CLIENT_SETTINGS, browserKeepSessionCookies: false }),
+            ),
+          ),
+        ),
+      ),
+    ).pipe(Effect.provide(NodeServices.layer)),
   );
 });

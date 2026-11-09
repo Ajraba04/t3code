@@ -15,6 +15,7 @@ import {
   BROWSER_PROFILE_NAME_MAX_LENGTH,
   BROWSER_RECORDING_FRAME_RATES,
   DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW,
+  DEFAULT_BROWSER_KEEP_SESSION_COOKIES,
   DEFAULT_BROWSER_PROFILE_ID,
   DEFAULT_BROWSER_LINK_TARGET,
   DEFAULT_BROWSER_RECORDING_FRAME_RATE,
@@ -1107,6 +1108,39 @@ function BrowserAutoShowFloatingPreviewSetting({ disabled }: { readonly disabled
   );
 }
 
+function BrowserKeepSessionCookiesSetting({ disabled }: { readonly disabled: boolean }) {
+  const keep = useClientSettings((settings) => settings.browserKeepSessionCookies);
+  const updateSettings = useUpdatePrimarySettings();
+
+  return (
+    <SettingsRow
+      id="browser-keep-session-cookies"
+      title="Keep sign-ins that use session cookies"
+      description="Restore sign-ins that would end when the app quits, like Chrome's Continue where you left off. Applies to saved profiles, not Incognito."
+      resetAction={
+        !disabled && keep !== DEFAULT_BROWSER_KEEP_SESSION_COOKIES ? (
+          <SettingResetButton
+            label="keep session sign-ins"
+            onClick={() =>
+              updateSettings({ browserKeepSessionCookies: DEFAULT_BROWSER_KEEP_SESSION_COOKIES })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          disabled={disabled}
+          checked={keep}
+          onCheckedChange={(checked) =>
+            updateSettings({ browserKeepSessionCookies: Boolean(checked) })
+          }
+          aria-label="Keep sign-ins that use session cookies"
+        />
+      }
+    />
+  );
+}
+
 function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
   const userProfiles = useClientSettings((settings) => settings.browserProfiles);
   const defaultProfileId = useClientSettings((settings) => settings.browserDefaultProfileId);
@@ -1590,6 +1624,7 @@ export function BrowserSettingsPanel() {
           <BrowserProfilesSetting disabled={desktopOnly} />
           <BrowserLinkTargetSetting disabled={desktopOnly} />
           <BrowserAutoShowFloatingPreviewSetting disabled={desktopOnly} />
+          <BrowserKeepSessionCookiesSetting disabled={desktopOnly} />
         </SettingsUnavailableGroup>
         {/* Not desktop-only: web clients search from server-run browser tabs too. */}
         <BrowserSearchEngineSetting />
