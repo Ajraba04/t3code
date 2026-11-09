@@ -1101,8 +1101,9 @@ describe("PreviewManager", () => {
     ),
   );
 
-  const makeAttachingGuest = (id: number) => {
+  const makeAttachingGuest = (id: number, options?: { readonly devToolsOpen?: boolean }) => {
     const listeners = new Map<string, () => void>();
+    const openDevTools = vi.fn();
     const attach = vi.fn();
     const detach = vi.fn();
     const sendCommand = vi.fn<(method: string, params?: unknown) => Promise<unknown>>(
@@ -1116,8 +1117,9 @@ describe("PreviewManager", () => {
       isDestroyed: () => destroyed,
       isDevToolsOpened: () => {
         if (destroyed) throw new TypeError("Object has been destroyed");
-        return false;
+        return options?.devToolsOpen ?? false;
       },
+      openDevTools,
       getType: () => "webview",
       getURL: () => "http://localhost:5173/README.md",
       getTitle: () => "README.md",
@@ -1160,6 +1162,7 @@ describe("PreviewManager", () => {
       attach,
       detach,
       sendCommand,
+      openDevTools,
       chromiumDetach,
       destroy: () => {
         destroyed = true;
@@ -1182,6 +1185,38 @@ describe("PreviewManager", () => {
         yield* Effect.yieldNow;
         yield* Effect.yieldNow;
         expect(guest.attach).toHaveBeenCalledTimes(2);
+      }),
+    ),
+  );
+
+  effectIt.effect("keeps agent control while DevTools is open", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const guest = makeAttachingGuest(49);
+        fromId.mockReturnValue(guest.wc);
+        yield* manager.createTab("tab_devtools");
+        yield* manager.registerWebview("tab_devtools", 49);
+        yield* Effect.yieldNow;
+        expect(guest.attach).toHaveBeenCalledTimes(1);
+
+        yield* manager.openDevTools("tab_devtools");
+
+        expect(guest.openDevTools).toHaveBeenCalledTimes(1);
+        expect(guest.detach).not.toHaveBeenCalled();
+      }),
+    ),
+  );
+
+  effectIt.effect("attaches agent control to a guest whose DevTools is already open", () =>
+    withManager((manager) =>
+      Effect.gen(function* () {
+        const guest = makeAttachingGuest(50, { devToolsOpen: true });
+        fromId.mockReturnValue(guest.wc);
+        yield* manager.createTab("tab_devtools_open");
+        yield* manager.registerWebview("tab_devtools_open", 50);
+        yield* Effect.yieldNow;
+
+        expect(guest.attach).toHaveBeenCalledTimes(1);
       }),
     ),
   );

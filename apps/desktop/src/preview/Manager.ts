@@ -1041,13 +1041,6 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
             }),
           );
         }
-        if (wc.isDevToolsOpened()) {
-          return Effect.fail(
-            new PreviewAutomationDevToolsOpenError({
-              webContentsId: wc.id,
-            }),
-          );
-        }
         if (wc.debugger.isAttached()) {
           return Effect.fail(
             new PreviewAutomationDebuggerAttachedError({
@@ -2043,13 +2036,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       );
       return;
     }
-    yield* detachControlSession(wc.id);
-    yield* attempt({ operation: "openDevTools", tabId, webContentsId: wc.id }, () => {
-      wc.once("devtools-closed", () => {
-        if (!wc.isDestroyed()) runFork(restoreControlSession(tabId, wc));
-      });
-      wc.openDevTools({ mode: "detach" });
-    });
+    // Electron 44 keeps the control session's debugger attached alongside DevTools.
+    yield* attempt({ operation: "openDevTools", tabId, webContentsId: wc.id }, () =>
+      wc.openDevTools({ mode: "detach" }),
+    );
   });
 
   const setAnnotationTheme = Effect.fn("PreviewManager.setAnnotationTheme")(function* (
@@ -3512,15 +3502,6 @@ export class PreviewArtifactImageLoadError extends Schema.TaggedError<PreviewArt
   }
 }
 
-export class PreviewAutomationDevToolsOpenError extends Schema.TaggedError<PreviewAutomationDevToolsOpenError>()(
-  "PreviewAutomationDevToolsOpenError",
-  { webContentsId: Schema.Number },
-) {
-  override get message(): string {
-    return `Close preview DevTools before using agent browser control for WebContents ${this.webContentsId}`;
-  }
-}
-
 export class PreviewAutomationDebuggerAttachedError extends Schema.TaggedError<PreviewAutomationDebuggerAttachedError>()(
   "PreviewAutomationDebuggerAttachedError",
   { webContentsId: Schema.Number },
@@ -3540,7 +3521,6 @@ export const PreviewManagerError = Schema.Union([
   PreviewOperationError,
   PreviewArtifactPathOutsideDirectoryError,
   PreviewArtifactImageLoadError,
-  PreviewAutomationDevToolsOpenError,
   PreviewAutomationDebuggerAttachedError,
 ]);
 export type PreviewManagerError = typeof PreviewManagerError.Type;
