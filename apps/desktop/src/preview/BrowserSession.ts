@@ -18,6 +18,7 @@ import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
+import * as BrowserExtensions from "./Extensions.ts";
 import * as SessionCookieSnapshot from "./SessionCookieSnapshot.ts";
 
 const PREVIEW_PARTITION_PREFIX = "persist:t3code-preview-";
@@ -254,6 +255,8 @@ export const make = Effect.gen(function* BrowserSessionMake() {
     FileSystem.FileSystem | Path.Path | ElectronSafeStorage.ElectronSafeStorage
   >();
   const runFork = Effect.runForkWith(snapshotServices);
+  // Optional so tests and tools that only need partitions do not have to provide a loader.
+  const extensions = yield* Effect.serviceOption(BrowserExtensions.BrowserExtensions);
   // One prompt at a time, so a page cannot stack dialogs by looping a deep link.
   let permissionPromptOpen = false;
   /** Settles with `undefined` when the user gave no answer: another prompt was open or the dialog failed. */
@@ -462,7 +465,7 @@ export const make = Effect.gen(function* BrowserSessionMake() {
     namespace?: BrowserSessionPartitionNamespace,
   ) {
     const partition = yield* getPartition(scope, persistent, namespace);
-    return yield* SynchronizedRef.modifyEffect(sessionsRef, (sessions) => {
+    const browserSession = yield* SynchronizedRef.modifyEffect(sessionsRef, (sessions) => {
       const existing = sessions.get(partition);
       if (existing) return Effect.succeed([existing, sessions] as const);
       const created = Effect.try({
@@ -558,6 +561,12 @@ export const make = Effect.gen(function* BrowserSessionMake() {
           )
         : created;
     });
+    // Awaited on every call so no guest attaches before its profile's content scripts are loaded.
+    const profileId = BrowserExtensions.profileIdForPartitionScope(scope, namespace);
+    if (persistent && profileId !== undefined && Option.isSome(extensions)) {
+      yield* extensions.value.attach(browserSession, profileId);
+    }
+    return browserSession;
   });
 
   const service = BrowserSession.of({

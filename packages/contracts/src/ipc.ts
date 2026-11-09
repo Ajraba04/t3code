@@ -1002,6 +1002,34 @@ export const DesktopPreviewClearDataInputSchema = Schema.Struct({
   profileId: Schema.optional(BrowserProfileId),
 });
 
+/** An unpacked extension folder added to one browser profile, as the desktop stored it. */
+export const BrowserExtensionSchema = Schema.Struct({
+  id: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  path: Schema.String,
+  enabled: Schema.Boolean,
+  /** From manifest.json; null when the folder or its manifest can no longer be read. */
+  name: Schema.NullOr(Schema.String),
+  version: Schema.NullOr(Schema.String),
+  /** Why the extension is not running: an unreadable folder or Electron's load error. */
+  error: Schema.NullOr(Schema.String),
+});
+export type BrowserExtension = typeof BrowserExtensionSchema.Type;
+
+export const DesktopBrowserExtensionsInputSchema = Schema.Struct({
+  profileId: BrowserProfileId,
+});
+
+export const DesktopBrowserExtensionInputSchema = Schema.Struct({
+  profileId: BrowserProfileId,
+  extensionId: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+});
+
+export const DesktopBrowserExtensionSetEnabledInputSchema = Schema.Struct({
+  profileId: BrowserProfileId,
+  extensionId: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  enabled: Schema.Boolean,
+});
+
 export const DesktopPreviewSetColorSchemeInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
   colorScheme: DesktopPreviewColorSchemeSchema,
@@ -1292,6 +1320,18 @@ export interface DesktopPreviewBridge {
     readonly sourceProfileDirectory: string;
     readonly targetProfileId: string;
   }) => Promise<BrowserImportResult>;
+  listBrowserExtensions: (profileId: string) => Promise<ReadonlyArray<BrowserExtension>>;
+  /** Opens a folder picker in the desktop app; resolves with the profile's list either way. */
+  addBrowserExtension: (profileId: string) => Promise<ReadonlyArray<BrowserExtension>>;
+  setBrowserExtensionEnabled: (
+    profileId: string,
+    extensionId: string,
+    enabled: boolean,
+  ) => Promise<ReadonlyArray<BrowserExtension>>;
+  removeBrowserExtension: (
+    profileId: string,
+    extensionId: string,
+  ) => Promise<ReadonlyArray<BrowserExtension>>;
   setAnnotationTheme: (theme: DesktopPreviewAnnotationTheme) => Promise<void>;
   setAnnotationSendEnabled: (tabId: string, enabled: boolean) => Promise<void>;
   annotationVoice: {

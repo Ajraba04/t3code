@@ -371,6 +371,18 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     listBrowserImportSources: () => ipcRenderer.invoke(IpcChannels.PREVIEW_IMPORT_SOURCES_CHANNEL),
     importBrowserCookies: (input) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_IMPORT_COOKIES_CHANNEL, input),
+    listBrowserExtensions: (profileId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_EXTENSIONS_LIST_CHANNEL, { profileId }),
+    addBrowserExtension: (profileId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_EXTENSIONS_ADD_CHANNEL, { profileId }),
+    setBrowserExtensionEnabled: (profileId, extensionId, enabled) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_EXTENSIONS_SET_ENABLED_CHANNEL, {
+        profileId,
+        extensionId,
+        enabled,
+      }),
+    removeBrowserExtension: (profileId, extensionId) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_EXTENSIONS_REMOVE_CHANNEL, { profileId, extensionId }),
     clearCookies: (environmentId, profileId) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_CLEAR_COOKIES_CHANNEL, { environmentId, profileId }),
     clearCache: (environmentId, profileId) =>

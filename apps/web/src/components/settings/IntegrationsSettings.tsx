@@ -118,6 +118,7 @@ import { searchableSetting } from "./settingsSearch";
 import { AdvancedSettings } from "./AdvancedSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { BrowserImportWizard, type WizardTarget } from "./BrowserImportWizard";
+import { BrowserExtensionsSection } from "./BrowserExtensionsSettings";
 import type { ImportOutcome } from "./browserImportWizard.logic";
 
 const FILL_VALUE = "fill";
@@ -171,6 +172,16 @@ const APPEARANCE_LABELS: Readonly<Record<PreviewAppearancePreference, string>> =
   light: "Light",
   dark: "Dark",
 };
+
+async function removeBrowserProfileExtensions(
+  bridge: typeof previewBridge,
+  profileId: string,
+): Promise<void> {
+  if (bridge === null) return;
+  for (const extension of await bridge.listBrowserExtensions(profileId)) {
+    await bridge.removeBrowserExtension(profileId, extension.id);
+  }
+}
 
 const zoomLabel = (zoomFactor: number) => `${Math.round(zoomFactor * 100)}%`;
 
@@ -1263,6 +1274,8 @@ function BrowserProfilesSetting({ disabled }: { readonly disabled: boolean }) {
       setProfileRemovalInFlight(false);
       return;
     }
+    // Best effort: a leftover entry is never loaded, since no session uses a removed profile.
+    await removeBrowserProfileExtensions(previewBridge, id).catch(() => undefined);
     const currentSettings = getClientSettings();
     updateSettings({
       browserProfiles: currentSettings.browserProfiles.filter((profile) => profile.id !== id),
@@ -1641,6 +1654,7 @@ export function BrowserSettingsPanel() {
           </SettingsUnavailableGroup>
         </AdvancedSettings>
       </SettingsSection>
+      <BrowserExtensionsSection desktopOnlyMessage={desktopOnlyMessage} />
       <SettingsSection id="browser-recordings" title="Recordings">
         <SettingsUnavailableGroup message={desktopOnlyMessage}>
           <BrowserRecordingFrameRateSetting disabled={desktopOnly} />

@@ -69,6 +69,7 @@ import {
   setSnapShotShortcutSuppressed,
 } from "./methods/snapShot.ts";
 import * as PreviewIpc from "./methods/preview.ts";
+import * as BrowserExtensionsIpc from "./methods/browserExtensions.ts";
 import * as AppActivationIpc from "./methods/appActivation.ts";
 import * as WebLinksIpc from "./methods/webLinks.ts";
 import {
@@ -173,4 +174,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   }
   yield* ipc.handle(PreviewIpc.listBrowserImportSources);
   yield* ipc.handle(PreviewIpc.importBrowserCookies);
+  yield* ipc.handle(BrowserExtensionsIpc.listBrowserExtensions);
+  yield* ipc.handle(BrowserExtensionsIpc.addBrowserExtension);
+  yield* ipc.handle(BrowserExtensionsIpc.setBrowserExtensionEnabled);
+  yield* ipc.handle(BrowserExtensionsIpc.removeBrowserExtension);
 });
