@@ -25,6 +25,7 @@ import {
   CommandId,
   type GuestMessageId,
   isCompactionCommandMessage,
+  isDelegatedAppThread,
   isOrchestrationV2WorkActive,
   isProviderNativeSubagentThread,
   MessageId,
@@ -3387,6 +3388,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           threadId: command.threadId,
         });
       }
+      const refuseMove = (cause: string) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} ${cause}`,
+        });
+      if (thread.projectId === command.projectId) {
+        return yield* refuseMove("is already in that project.");
+      }
+      if (thread.lineage.sideChat === true || isDelegatedAppThread(thread)) {
+        return yield* refuseMove("stays with the thread it belongs to.");
+      }
+      // A guest's next message would otherwise run in the destination project.
+      const guestShare = thread.guestShare ?? null;
+      if (
+        guestShare !== null &&
+        Date.parse(guestShare.expiresAt) > DateTime.toEpochMillis(yield* DateTime.now)
+      ) {
+        return yield* refuseMove("has an open guest link. Close it first.");
+      }
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs", "runtimeRequests"], { turnItemTypes: [] })
         .pipe(mapDispatchError(command));
@@ -3957,6 +3978,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...thread,
             projectId: command.projectId,
             branch: null,
+            branchPullRequest: null,
             worktreePath: null,
             updatedAt: now,
           };

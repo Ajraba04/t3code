@@ -27,6 +27,7 @@ import type * as PlatformError from "effect/PlatformError";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -84,6 +85,7 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* ProjectService.ProjectService;
+  const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -481,6 +483,16 @@ const make = Effect.gen(function* () {
     if (thread.archivedAt !== null) {
       return yield* failure("invalid_request", `Thread '${thread.id}' is archived.`);
     }
+    // No project threads keep their own folder in worktreePath; only a real worktree is refused.
+    if (
+      thread.worktreePath !== null &&
+      !(yield* managedFolders.isScratchProject(thread.projectId))
+    ) {
+      return yield* failure(
+        "invalid_request",
+        "This thread works in its own worktree, which cannot move to another folder yet.",
+      );
+    }
     if (records.subagents.some(isUnfinishedSubagent)) {
       return yield* failure(
         "invalid_request",
@@ -598,6 +610,7 @@ export const layer: Layer.Layer<
   | Path.Path
   | ThreadManagementService.ThreadManagementService
   | ProjectService.ProjectService
+  | ManagedProjectFolders.ManagedProjectFolders
   | ServerSettings.ServerSettingsService
   | ScheduledTaskService.ScheduledTaskService
   | GitWorkflowService.GitWorkflowService

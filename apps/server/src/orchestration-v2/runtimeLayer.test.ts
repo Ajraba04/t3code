@@ -83,6 +83,7 @@ import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "../project/ScratchThreadPromotion.ts";
+import * as ThreadProjectMove from "../project/ThreadProjectMove.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -7337,6 +7338,149 @@ it.layer(layerScratchPromotionTest)("turning a No project thread into a project"
   );
 });
 
+const layerThreadProjectMoveTest = ThreadProjectMove.layer.pipe(
+  Layer.provide(
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+      scratchRoot: Effect.succeedSome(SCRATCH_ROOT),
+      isScratchProject: (projectId) => Effect.succeed(projectId === SCRATCH_PROJECT_ID),
+      namedProjectsRoot: "/projects",
+    }),
+  ),
+  Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+  Layer.provideMerge(layerProjectDeletionTest),
+);
+
+it.layer(layerThreadProjectMoveTest)("moving a thread to another project", (it) => {
+  const setup = Effect.fn(function* (name: string) {
+    const projects = yield* ProjectService.ProjectService;
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projectIds = {
+      scratch: SCRATCH_PROJECT_ID,
+      source: ProjectId.make(`user-move-${name}-source`),
+      target: ProjectId.make(`user-move-${name}-target`),
+    };
+    for (const [key, projectId] of Object.entries(projectIds)) {
+      if (Option.isSome(yield* projects.getById(projectId))) continue;
+      yield* projects.create({
+        commandId: CommandId.make(`${projectId}-create`),
+        projectId,
+        title: key,
+        workspaceRoot: projectId === SCRATCH_PROJECT_ID ? SCRATCH_ROOT : `/tmp/${projectId}`,
+      });
+    }
+    const createThread = (suffix: string, projectId: ProjectId, worktreePath: string | null) =>
+      orchestrator
+        .dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`user-move-${name}-${suffix}-create`),
+          threadId: ThreadId.make(`user-move-${name}-${suffix}`),
+          projectId,
+          title: `${name} ${suffix}`,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath,
+        })
+        .pipe(Effect.as(ThreadId.make(`user-move-${name}-${suffix}`)));
+    return { projectIds, createThread };
+  });
+  const shellOf = (threadId: ThreadId) =>
+    Orchestrator.OrchestratorV2.pipe(
+      Effect.flatMap((orchestrator) => orchestrator.getThreadShell(threadId)),
+    );
+
+  it.effect("moves an idle thread and its bound tasks, and moves it back", () =>
+    Effect.gen(function* () {
+      const mover = yield* ThreadProjectMove.ThreadProjectMove;
+      const tasks = yield* ScheduledTaskService.ScheduledTaskService;
+      const { projectIds, createThread } = yield* setup("idle");
+      const threadId = yield* createThread("main", projectIds.source, null);
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("user-move-idle-bound"),
+        title: "Bound",
+        prompt: "Check in",
+        enabled: true,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId: projectIds.source,
+        threadId,
+        workspaceStrategy: { type: "root" },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+
+      yield* mover.move({ threadId, projectId: projectIds.target });
+
+      assert.equal((yield* shellOf(threadId))?.projectId, projectIds.target);
+      const saved = (yield* tasks.list()).tasks.find((candidate) => candidate.id === task.id);
+      assert.equal(saved?.projectId, projectIds.target);
+
+      yield* mover.move({ threadId, projectId: projectIds.source });
+      assert.equal((yield* shellOf(threadId))?.projectId, projectIds.source);
+    }),
+  );
+
+  it.effect("moves a No project thread out of its own folder", () =>
+    Effect.gen(function* () {
+      const mover = yield* ThreadProjectMove.ThreadProjectMove;
+      const { projectIds, createThread } = yield* setup("scratch");
+      const threadId = yield* createThread(
+        "main",
+        projectIds.scratch,
+        `${SCRATCH_ROOT}/2026-01-01-user-move`,
+      );
+
+      yield* mover.move({ threadId, projectId: projectIds.target });
+
+      const shell = yield* shellOf(threadId);
+      assert.equal(shell?.projectId, projectIds.target);
+      assert.isNull(shell?.worktreePath);
+    }),
+  );
+
+  it.effect("refuses a worktree thread and a running thread without changing them", () =>
+    Effect.gen(function* () {
+      const mover = yield* ThreadProjectMove.ThreadProjectMove;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const { projectIds, createThread } = yield* setup("refused");
+      const worktreeId = yield* createThread("worktree", projectIds.source, "/tmp/user-move-wt");
+      const busyId = yield* createThread("busy", projectIds.source, null);
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("user-move-refused-busy-message"),
+        threadId: busyId,
+        messageId: MessageId.make("user-move-refused-busy-message"),
+        text: "Keep this run active.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+      });
+
+      const worktree = yield* mover
+        .move({ threadId: worktreeId, projectId: projectIds.target })
+        .pipe(Effect.flip);
+      assert.equal(
+        worktree.message,
+        "Threads with their own worktree cannot move to another project yet.",
+      );
+      const busy = yield* mover
+        .move({ threadId: busyId, projectId: projectIds.target })
+        .pipe(Effect.flip);
+      assert.equal(busy.message, '"refused busy" is still working. Finish or stop it first.');
+      for (const id of [worktreeId, busyId]) {
+        assert.equal((yield* shellOf(id))?.projectId, projectIds.source);
+      }
+    }),
+  );
+});
+
 it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
   it.effect("carries snooze, settle and title state through the V2 shell projection", () =>
     Effect.gen(function* () {
@@ -7587,6 +7731,8 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
       assert.equal(missing.cause, `Thread ${idleThreadId} cannot move to missing project missing.`);
       const busy = yield* move(busyThreadId, targetProjectId, "busy").pipe(Effect.flip);
       assert.equal(busy.cause, `Thread ${busyThreadId} still has work in progress.`);
+      const same = yield* move(idleThreadId, sourceProjectId, "same").pipe(Effect.flip);
+      assert.equal(same.cause, `Thread ${idleThreadId} is already in that project.`);
 
       yield* move(idleThreadId, targetProjectId, "target");
       const shell = yield* orchestrator.getShellSnapshot();

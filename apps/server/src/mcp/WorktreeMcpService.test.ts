@@ -32,6 +32,7 @@ import {
   OrchestratorProjectionError,
 } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -344,6 +345,9 @@ const makeHarness = (options: HarnessOptions = {}) => {
         Layer.mock(ScheduledTaskService.ScheduledTaskService)({
           moveThreadTasks: moveThreadTasks as never,
         }),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          isScratchProject: () => Effect.succeed(false),
+        }),
         ServerSettings.layerTest({
           newWorktreesStartFromOrigin: options.newWorktreesStartFromOrigin ?? false,
           ...(options.projectNewWorktreesStartFromOrigin === undefined
@@ -535,6 +539,11 @@ describe("t3_thread_move", () => {
             input: folder,
             code: "invalid_request",
             options: { thread: { worktreePath: folder } },
+          },
+          {
+            input: folder,
+            code: "invalid_request",
+            options: { thread: { worktreePath: "/worktrees/project/feature" } },
           },
           { input: folder, code: "invalid_request", options: { subagentStatus: "running" } },
           { input: folder, code: "invalid_request", options: { thread: { archivedAt: "now" } } },
