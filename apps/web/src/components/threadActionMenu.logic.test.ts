@@ -65,13 +65,15 @@ describe("buildThreadActionMenuItems", () => {
     },
   );
 
-  it("disables archive and turning into a project while the thread is running", () => {
+  it("disables archive and project moves while the thread is running", () => {
     const items = buildThreadActionMenuItems({
       ...baseState,
       isRunning: true,
       canTurnIntoProject: true,
+      moveDestinations: [{ id: "project-b", label: "B" }],
     });
     expect(items.find((item) => item.id === "archive")?.disabled).toBe(true);
     expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
+    expect(items.find((item) => item.id === "move-to-project")?.disabled).toBe(true);
   });
 });

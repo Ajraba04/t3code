@@ -347,6 +347,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
         }),
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
           isScratchProject: () => Effect.succeed(false),
+          namedProjectsRoot: "/projects",
         }),
         ServerSettings.layerTest({
           newWorktreesStartFromOrigin: options.newWorktreesStartFromOrigin ?? false,

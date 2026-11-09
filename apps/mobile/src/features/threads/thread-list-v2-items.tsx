@@ -63,6 +63,7 @@ import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
 import { canTurnThreadIntoProject, turnThreadIntoProject } from "./turnThreadIntoProject";
+import { moveThreadToProject, threadMoveDestinationsFor } from "./moveThreadToProject";
 import { threadCanArchive } from "../home/threadArchive";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
@@ -889,6 +890,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     [props.autoSettleOptOutSupported, thread.autoSettleDisabledAt],
   );
   const canTurnIntoProject = canTurnThreadIntoProject(thread);
+  // A fresh array every render; the joined key keeps the menu memo stable.
+  const moveDestinationsKey = threadMoveDestinationsFor(thread)
+    .map((project) => `${project.id}\u0000${project.title}`)
+    .join("\n");
   const titleMenuItems = useMemo<MenuAction[]>(
     () => [
       { id: "rename", title: "Rename", image: "square.and.pencil" },
@@ -906,8 +911,28 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             } satisfies MenuAction,
           ]
         : []),
+      ...(moveDestinationsKey !== ""
+        ? [
+            {
+              id: "move-to-project",
+              title: "Move to project",
+              image: "folder",
+              attributes: { disabled: !threadCanArchive(thread.runtime) },
+              subactions: moveDestinationsKey.split("\n").map((entry) => {
+                const [id, title] = entry.split("\u0000");
+                return { id: `move-to-project:${id}`, title: title ?? "" };
+              }),
+            } satisfies MenuAction,
+          ]
+        : []),
     ],
-    [canTurnIntoProject, props.titleRegenerationSupported, thread.runtime, isRegeneratingTitle],
+    [
+      canTurnIntoProject,
+      moveDestinationsKey,
+      props.titleRegenerationSupported,
+      thread.runtime,
+      isRegeneratingTitle,
+    ],
   );
   const menuActions = useMemo<MenuAction[]>(() => {
     const nested = Platform.OS === "ios";
@@ -1010,6 +1035,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "rename") handleRename();
       if (nativeEvent.event === "regenerate-title") handleRegenerateTitle();
       if (nativeEvent.event === "turn-into-project") void turnThreadIntoProject(thread);
+      if (nativeEvent.event.startsWith("move-to-project:")) {
+        void moveThreadToProject(thread, nativeEvent.event.slice("move-to-project:".length));
+      }
       if (nativeEvent.event === "copy-thread") {
         const target = threadChipCopyTarget(
           { environmentId: thread.environmentId, threadId: thread.id },

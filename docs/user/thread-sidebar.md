@@ -31,11 +31,15 @@ list. It starts on your current machine; before sending, pick another machine
 from the machine menu to move it there. To move a draft into a project, pick the
 project in the heading.
 
-To move a thread that has already started, ask its agent to move to the folder
-you name. The conversation carries over and the thread lands in that folder's
-project, registering one if there is none. The move happens when the turn ends;
-a failed or stopped turn drops it. Files stay where they are, and the thread's
-branch and worktree are cleared. The agent needs full access to do this.
+To file a thread that has already started under another project, pick **Move to
+project** from its menu and choose the project. The conversation carries over and
+its next turn runs in that project's folder. Files stay where they were. Stop a
+running thread first. A thread with its own worktree cannot move yet. Its
+terminal restarts in the new folder.
+
+You can also ask a thread's agent to move to a folder you name. The thread lands in
+that folder's project, registering one if there is none. The move happens when the
+turn ends; a failed or stopped turn drops it. The agent needs full access to do this.
 
 Each thread without a project works in its own folder under `~/.t3/scratch` (the
 `scratch` folder of your T3 data directory), named after its date, the first words

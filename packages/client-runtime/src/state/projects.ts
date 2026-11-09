@@ -144,6 +144,52 @@ export function isScratchProject(
   );
 }
 
+/**
+ * Projects a thread can be filed under, pinned first. A thread with its own worktree has none:
+ * the server refuses to move it. No project threads keep their folder in `worktreePath` and can move.
+ */
+export function threadMoveDestinations<
+  TProject extends {
+    readonly id: string;
+    readonly environmentId: string;
+    readonly title: string;
+    readonly workspaceRoot: string;
+    readonly pinnedAt?: string | null | undefined;
+    readonly archivedAt?: string | null | undefined;
+  },
+>(
+  thread: {
+    readonly environmentId: string;
+    readonly projectId: string;
+    readonly worktreePath: string | null;
+  },
+  projects: ReadonlyArray<TProject>,
+  scratchWorkspaceRoot: string | null | undefined,
+): ReadonlyArray<TProject> {
+  const environmentProjects = projects.filter(
+    (project) => project.environmentId === thread.environmentId,
+  );
+  const current = environmentProjects.find((project) => project.id === thread.projectId);
+  if (
+    thread.worktreePath !== null &&
+    !(current && isScratchProject(current, scratchWorkspaceRoot))
+  ) {
+    return [];
+  }
+  return environmentProjects
+    .filter(
+      (project) =>
+        project.id !== thread.projectId &&
+        project.archivedAt == null &&
+        !isScratchProject(project, scratchWorkspaceRoot),
+    )
+    .sort(
+      (left, right) =>
+        Number(right.pinnedAt != null) - Number(left.pinnedAt != null) ||
+        left.title.localeCompare(right.title),
+    );
+}
+
 export function inferProjectTitleFromPath(value: string): string {
   const normalized = normalizeProjectPathForDispatch(value);
   const absolutePath = splitAbsolutePath(normalized);

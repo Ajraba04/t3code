@@ -4,7 +4,11 @@ import {
   scopeThreadRef,
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
-import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import {
+  isAtomCommandInterrupted,
+  settlePromise,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import {
@@ -12,6 +16,7 @@ import {
   AuthSourceControlWriteScope,
   EnvironmentAuthorizationError,
   EnvironmentId,
+  ProjectId,
   type ScopedThreadRef,
   ThreadId,
   sessionGrantsScope,
@@ -27,7 +32,7 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { environmentSession, readEnvironmentScope } from "../state/session";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentServerConfigsAtom } from "../state/server";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { isScratchProject, threadMoveDestinations } from "@t3tools/client-runtime/state/projects";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
@@ -41,6 +46,7 @@ import {
   readEnvironmentSupportsAutoSettleOptOut,
   readEnvironmentThreadRefs,
   readProject,
+  readProjects,
   readThreadShell,
   readThreadShells,
 } from "../state/entities";
@@ -260,6 +266,20 @@ export function canTurnThreadIntoProject(threadRef: ScopedThreadRef): boolean {
   return project !== null && isScratchProject(project, config.scratchWorkspaceRoot);
 }
 
+/** Projects in the thread's environment it can move to, on a server that supports moving. */
+export function threadMoveDestinationsFor(
+  threadRef: ScopedThreadRef,
+): ReadonlyArray<{ readonly id: ProjectId; readonly label: string }> {
+  const thread = readThreadShell(threadRef);
+  const config = appAtomRegistry.get(environmentServerConfigsAtom).get(threadRef.environmentId);
+  if (!thread || config?.environment.capabilities.threadProjectMove !== true) return [];
+  return threadMoveDestinations(
+    { ...thread, worktreePath: thread.worktreePath ?? null },
+    readProjects(),
+    config.scratchWorkspaceRoot,
+  ).map((project) => ({ id: project.id, label: project.title }));
+}
+
 function threadOperationFailure(target: ScopedThreadRef) {
   return readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
     ? null
@@ -312,6 +332,9 @@ export function useThreadActions() {
   });
   const markThreadUnread = useMarkThreadUnread();
   const createProjectFromThread = useAtomCommand(projectEnvironment.createFromThread, {
+    reportFailure: false,
+  });
+  const moveThreadMutation = useAtomCommand(projectEnvironment.moveThread, {
     reportFailure: false,
   });
   const stopThreadSession = useOrchestrationCommand(threadEnvironment.stopSession);
@@ -970,5 +993,28 @@ export function useThreadActions() {
         environmentId: target.environmentId,
         input: { threadId: target.threadId },
       }),
+    moveThreadToProject: async (target: ScopedThreadRef, projectId: ProjectId) => {
+      const result = await moveThreadMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, projectId },
+      });
+      if (result._tag === "Success") {
+        const project = readProject({ environmentId: target.environmentId, projectId });
+        toastManager.add({
+          type: "success",
+          title: "Thread moved",
+          description: project ? `Its next turn runs in ${project.title}.` : undefined,
+        });
+      } else if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not move thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    },
   };
 }
