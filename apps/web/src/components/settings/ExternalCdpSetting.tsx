@@ -19,9 +19,9 @@ export function ExternalCdpSetting() {
     setError(null);
     try {
       await externalCdpBridge?.setEnabled(next);
+      setIsUpdating(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Couldn't change this setting.");
-    } finally {
       setIsUpdating(false);
     }
   };

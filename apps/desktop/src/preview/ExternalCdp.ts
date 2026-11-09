@@ -331,7 +331,7 @@ const make = Effect.gen(function* () {
       }
     },
     state: Effect.sync(snapshot),
-    setEnabled: (next) =>
+    setEnabled: Effect.fn("ExternalCdp.setEnabled")((next: boolean) =>
       Effect.tryPromise({
         try: async () => {
           enabled = next;
@@ -354,6 +354,7 @@ const make = Effect.gen(function* () {
           return new ExternalCdpStartError({ cause });
         },
       }),
+    ),
     disconnect: (tabId) => registry.disconnect(tabId),
     subscribe: (listener) => {
       listeners.add(listener);

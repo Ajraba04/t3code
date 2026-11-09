@@ -213,7 +213,21 @@ const isCommand = (value: unknown): value is CdpCommand =>
   typeof (value as { id?: unknown }).id === "number" &&
   typeof (value as { method?: unknown }).method === "string";
 
-class CdpCommandError extends Error {}
+/** Rejected with a CDP protocol error; the message becomes the client's error reply. */
+interface CdpProtocolError {
+  readonly _tag: "CdpProtocolError";
+  readonly message: string;
+}
+const protocolError = (message: string): CdpProtocolError => ({
+  _tag: "CdpProtocolError",
+  message,
+});
+const errorMessage = (cause: unknown) =>
+  typeof cause === "object" &&
+  cause !== null &&
+  typeof (cause as { message?: unknown }).message === "string"
+    ? (cause as { message: string }).message
+    : String(cause);
 
 /** Events a reply carries, sent just before it as Chromium would. */
 const PRECEDE = Symbol("precede");
@@ -398,7 +412,7 @@ export function createExternalCdpClient(options: {
 
   const tabOf = (id: string) => {
     const tab = registry.tab(id);
-    if (!tab) throw new CdpCommandError("This T3 tab has closed.");
+    if (!tab) throw protocolError("This T3 tab has closed.");
     return tab;
   };
 
@@ -411,7 +425,7 @@ export function createExternalCdpClient(options: {
     const params = command.params ?? {};
     if (ACKNOWLEDGED_BROWSER.has(command.method)) return reply({});
     if (REFUSED.has(command.method)) {
-      throw new CdpCommandError(`T3 owns this browser; ${command.method} is not available.`);
+      throw protocolError(`T3 owns this browser; ${command.method} is not available.`);
     }
     switch (command.method) {
       case "Browser.getVersion":
@@ -435,7 +449,7 @@ export function createExternalCdpClient(options: {
             const info = await tab.targetInfo();
             if (info["targetId"] === wanted) return reply({ targetInfo: info });
           }
-          throw new CdpCommandError("No target with given id found");
+          throw protocolError("No target with given id found");
         }
         return reply({
           targetInfo: {
@@ -466,14 +480,14 @@ export function createExternalCdpClient(options: {
       }
       case "Target.attachToTarget": {
         if (params["flatten"] === false) {
-          throw new CdpCommandError("Only flattened sessions are supported.");
+          throw protocolError("Only flattened sessions are supported.");
         }
         for (const tab of registry.tabs()) {
           if ((await tab.targetInfo())["targetId"] === params["targetId"]) {
             return reply({ sessionId: newPageSession(tab) });
           }
         }
-        throw new CdpCommandError("No target with given id found");
+        throw protocolError("No target with given id found");
       }
       case "Target.detachFromTarget": {
         const sessionId = params["sessionId"];
@@ -492,7 +506,7 @@ export function createExternalCdpClient(options: {
         return reply({}, { follow });
       }
       default:
-        throw new CdpCommandError(`Not supported on T3's CDP endpoint: ${command.method}`);
+        throw protocolError(`Not supported on T3's CDP endpoint: ${command.method}`);
     }
   };
 
@@ -510,13 +524,13 @@ export function createExternalCdpClient(options: {
     const name = method.slice(dot + 1);
     if (domain === "Browser") return browserCommand(command);
     if (REFUSED.has(method)) {
-      throw new CdpCommandError(`T3 owns this tab; ${method} is not available.`);
+      throw protocolError(`T3 owns this tab; ${method} is not available.`);
     }
     if (domain === "Fetch") {
-      throw new CdpCommandError("Request interception is not available on a tab T3 shares.");
+      throw protocolError("Request interception is not available on a tab T3 shares.");
     }
     if (RESERVED_SCREENCAST.has(method)) {
-      throw new CdpCommandError("T3 uses this tab's screencast; take screenshots instead.");
+      throw protocolError("T3 uses this tab's screencast; take screenshots instead.");
     }
     // Disabling a domain on the shared debugger would turn it off for T3 and other clients.
     if (name === "disable") {
@@ -549,7 +563,7 @@ export function createExternalCdpClient(options: {
         case "detachFromTarget":
           return reply({});
         default:
-          throw new CdpCommandError(`${method} is not available on a T3 tab.`);
+          throw protocolError(`${method} is not available on a T3 tab.`);
       }
     }
     subscribe(key, domain);
@@ -592,7 +606,7 @@ export function createExternalCdpClient(options: {
         const tab = registry.tab(tabId);
         if (tab?.ownsChild(sessionId)) return pageCommand(tab, sessionId, sessionId, command);
       }
-      throw new CdpCommandError(`Session with given id not found: ${sessionId}`);
+      throw protocolError(`Session with given id not found: ${sessionId}`);
     } catch (cause) {
       return Promise.reject(cause);
     }
@@ -662,7 +676,7 @@ export function createExternalCdpClient(options: {
             id: command.id,
             error: {
               code: -32000,
-              message: cause instanceof Error ? cause.message : String(cause),
+              message: errorMessage(cause),
             },
             ...routing,
           }),
