@@ -3,6 +3,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   EnvironmentId,
+  PREVIEW_PERFORMANCE_STOP_TIMEOUT_MS,
   PreviewTabId,
   ProviderInstanceId,
   ThreadId,
@@ -82,6 +83,76 @@ it.effect("preview_open navigates the opened tab to a dev server in one tool cal
       ]);
       expect(requests[1]?.tabId).toBe(tabId);
       expect(requests[1]?.tabIdExplicit).toBe(true);
+    }).pipe(
+      Effect.provideService(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment-1"),
+        requestNamespace: "provider-session-1",
+        thread: {
+          threadId: ThreadId.make("thread-1"),
+          providerSessionId: "provider-session-1",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["preview"] as const),
+        issuedAt: 1,
+      }),
+      Effect.provide(
+        Layer.mergeAll(PreviewAutomationBroker.layer, liveThreadsLayer).pipe(
+          Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+        ),
+      ),
+    ),
+  ),
+);
+
+it.effect("preview_performance sends one operation and gives stop time to read the trace", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+      const connected = yield* Deferred.make<void>();
+      const tabId = PreviewTabId.make("traced-tab");
+      const requests: PreviewAutomationRequest[] = [];
+      const stopped = {
+        tabId,
+        tracing: false,
+        startedAt: "2026-11-09T00:00:00.000Z",
+        durationMs: 1200,
+        path: "/attachments/thread-1-trace-json.json",
+        sizeBytes: 2048,
+        metrics: { taskMs: 80, cumulativeLayoutShift: 0 },
+      };
+      const events = yield* broker.connect({
+        clientId: "client-1",
+        environmentId: scope.environmentId,
+        supportedOperations: ["status", "performance"],
+      });
+      yield* Stream.runForEach(events, (event) => {
+        if (event.type === "connected") return Deferred.succeed(connected, undefined);
+        requests.push(event.request);
+        return broker.respond({
+          clientId: "client-1",
+          connectionId: event.connectionId,
+          requestId: event.request.requestId,
+          ok: true,
+          result: event.request.operation === "performance" ? stopped : { tabId, url: null },
+        });
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(connected);
+      const toolkit = yield* PreviewStandardToolkit.pipe(
+        Effect.provide(McpToolAccess.HandlersLayer.layer(layerStandard)),
+      );
+      const results = yield* toolkit
+        .handle("preview_performance", { action: "stop", tabId })
+        .pipe(Stream.unwrap, Stream.runCollect);
+      expect(results.at(-1)?.result).toEqual(stopped);
+      const [request] = requests;
+      expect(request).toMatchObject({
+        operation: "performance",
+        input: { action: "stop" },
+        tabId,
+        timeoutMs: PREVIEW_PERFORMANCE_STOP_TIMEOUT_MS,
+      });
     }).pipe(
       Effect.provideService(McpInvocationContext.McpInvocationContext, {
         environmentId: EnvironmentId.make("environment-1"),

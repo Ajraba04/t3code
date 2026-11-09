@@ -264,6 +264,11 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "browser",
     "browser",
   ),
+  preview_performance: tool(
+    ["Trace", "Tracing", "Traced", "preview page performance"],
+    "browser",
+    "browser",
+  ),
   preview_recording_start: tool(
     ["Start", "Starting", "Started", "recording the preview browser"],
     "browser",
