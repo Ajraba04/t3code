@@ -1,6 +1,7 @@
 import type {
   DesktopBridge,
   DesktopPreviewAnnotationVoiceEvent,
+  DesktopPreviewExternalCdpState,
   DesktopPreviewOpenLinkEvent,
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingInputEvent,
@@ -456,6 +457,26 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.on(IpcChannels.PREVIEW_OPEN_LINK_CHANNEL, wrappedListener);
       return () =>
         ipcRenderer.removeListener(IpcChannels.PREVIEW_OPEN_LINK_CHANNEL, wrappedListener);
+    },
+    externalCdp: {
+      getState: () => ipcRenderer.invoke(IpcChannels.PREVIEW_EXTERNAL_CDP_GET_STATE_CHANNEL),
+      setEnabled: (enabled) =>
+        ipcRenderer.invoke(IpcChannels.PREVIEW_EXTERNAL_CDP_SET_ENABLED_CHANNEL, enabled),
+      copy: (value) => ipcRenderer.invoke(IpcChannels.PREVIEW_EXTERNAL_CDP_COPY_CHANNEL, value),
+      disconnect: (tabId) =>
+        ipcRenderer.invoke(IpcChannels.PREVIEW_EXTERNAL_CDP_DISCONNECT_CHANNEL, { tabId }),
+      onStateChange: (listener) => {
+        const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+          if (typeof state !== "object" || state === null) return;
+          listener(state as DesktopPreviewExternalCdpState);
+        };
+        ipcRenderer.on(IpcChannels.PREVIEW_EXTERNAL_CDP_STATE_CHANNEL, wrappedListener);
+        return () =>
+          ipcRenderer.removeListener(
+            IpcChannels.PREVIEW_EXTERNAL_CDP_STATE_CHANNEL,
+            wrappedListener,
+          );
+      },
     },
   },
 } satisfies DesktopBridge);

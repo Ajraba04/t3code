@@ -19,6 +19,8 @@ import {
   DesktopPreviewClearDataInputSchema,
   DesktopPreviewImportCookiesInputSchema,
   DesktopPreviewCreateTabInputSchema,
+  DesktopPreviewExternalCdpCopyInputSchema,
+  DesktopPreviewExternalCdpStateSchema,
   DesktopPreviewTabInputSchema,
   DesktopPreviewWebviewConfigSchema,
   PreviewAnnotationSubmissionResultSchema,
@@ -28,6 +30,7 @@ import {
   PreviewForwardedShortcut,
   MAX_KEYBINDINGS_COUNT,
 } from "@t3tools/contracts";
+import * as Electron from "electron";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
@@ -35,6 +38,7 @@ import * as NodeURL from "node:url";
 
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
+import * as ExternalCdp from "../../preview/ExternalCdp.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import { normalizeCaptureFailure } from "../../preview/captureErrors.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
@@ -59,6 +63,59 @@ export const installPreviewEventForwarding = Effect.fn(
   yield* manager.subscribeOpenLinks((event) =>
     electronWindow.sendAll(IpcChannels.PREVIEW_OPEN_LINK_CHANNEL, event),
   );
+  const externalCdp = yield* Effect.serviceOption(ExternalCdp.ExternalCdp);
+  if (Option.isSome(externalCdp)) {
+    const unsubscribe = externalCdp.value.subscribe((state) =>
+      electronWindow.sendAll(IpcChannels.PREVIEW_EXTERNAL_CDP_STATE_CHANNEL, state),
+    );
+    yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+  }
+});
+
+const EXTERNAL_CDP_UNAVAILABLE = { enabled: false, endpoint: null, attachedTabIds: [] };
+
+const getExternalCdpState = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_EXTERNAL_CDP_GET_STATE_CHANNEL,
+  payload: Schema.Void,
+  result: DesktopPreviewExternalCdpStateSchema,
+  handler: Effect.fn("desktop.ipc.preview.getExternalCdpState")(function* () {
+    const externalCdp = yield* Effect.serviceOption(ExternalCdp.ExternalCdp);
+    return Option.isSome(externalCdp) ? yield* externalCdp.value.state : EXTERNAL_CDP_UNAVAILABLE;
+  }),
+});
+
+const setExternalCdpEnabled = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_EXTERNAL_CDP_SET_ENABLED_CHANNEL,
+  payload: Schema.Boolean,
+  result: DesktopPreviewExternalCdpStateSchema,
+  handler: Effect.fn("desktop.ipc.preview.setExternalCdpEnabled")(function* (enabled) {
+    const externalCdp = yield* Effect.serviceOption(ExternalCdp.ExternalCdp);
+    if (Option.isNone(externalCdp)) return EXTERNAL_CDP_UNAVAILABLE;
+    return yield* externalCdp.value.setEnabled(enabled);
+  }),
+});
+
+const copyExternalCdp = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_EXTERNAL_CDP_COPY_CHANNEL,
+  payload: DesktopPreviewExternalCdpCopyInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.copyExternalCdp")(function* (value) {
+    const externalCdp = yield* Effect.serviceOption(ExternalCdp.ExternalCdp);
+    if (Option.isNone(externalCdp)) return;
+    const { endpoint } = yield* externalCdp.value.state;
+    const text = value === "token" ? externalCdp.value.token : endpoint;
+    if (text) Electron.clipboard.writeText(text);
+  }),
+});
+
+const disconnectExternalCdp = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_EXTERNAL_CDP_DISCONNECT_CHANNEL,
+  payload: DesktopPreviewTabInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.disconnectExternalCdp")(function* ({ tabId }) {
+    const externalCdp = yield* Effect.serviceOption(ExternalCdp.ExternalCdp);
+    if (Option.isSome(externalCdp)) externalCdp.value.disconnect(tabId);
+  }),
 });
 
 const setForwardedShortcuts = DesktopIpc.makeIpcMethod({
@@ -472,4 +529,8 @@ export const methods = [
   startRecording,
   stopRecording,
   saveRecording,
+  getExternalCdpState,
+  setExternalCdpEnabled,
+  copyExternalCdp,
+  disconnectExternalCdp,
 ] as const;

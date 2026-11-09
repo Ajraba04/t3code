@@ -44,7 +44,7 @@ const MAY_ESCAPE = /[^\x20\x21\x23-\x5b\x5d-\ud7ff\ue000-\uffff]/;
 const serializedSize = (text: string) =>
   (MAY_ESCAPE.test(text) ? text.length * 6 : text.length) + 3;
 
-const fitsPayloadBudget = (message: unknown) => {
+export const fitsPayloadBudget = (message: unknown) => {
   let remaining = MAX_CDP_PAYLOAD_SIZE;
   const visit = (value: unknown): boolean => {
     remaining -= typeof value === "string" ? serializedSize(value) : 26;

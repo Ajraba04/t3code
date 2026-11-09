@@ -942,6 +942,18 @@ export const DesktopPreviewTabInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
 });
 
+/** The opt-in local CDP endpoint for preview tabs. The token never reaches the renderer. */
+export const DesktopPreviewExternalCdpStateSchema = Schema.Struct({
+  enabled: Schema.Boolean,
+  /** The browser-level WebSocket URL, without the token. */
+  endpoint: Schema.NullOr(Schema.String),
+  /** Tabs an outside client is driving. */
+  attachedTabIds: Schema.Array(Schema.String),
+});
+export type DesktopPreviewExternalCdpState = typeof DesktopPreviewExternalCdpStateSchema.Type;
+
+export const DesktopPreviewExternalCdpCopyInputSchema = Schema.Literals(["endpoint", "token"]);
+
 /** Apply zoom and color scheme at creation to avoid flashing browser defaults. */
 export const DesktopPreviewCreateTabInputSchema = Schema.Struct({
   tabId: DesktopPreviewTabIdSchema,
@@ -1302,6 +1314,14 @@ export interface DesktopPreviewBridge {
   onStateChange: (listener: (tabId: string, state: DesktopPreviewTabState) => void) => () => void;
   onPointerEvent: (listener: (event: DesktopPreviewPointerEvent) => void) => () => void;
   onOpenLink: (listener: (event: DesktopPreviewOpenLinkEvent) => void) => () => void;
+  externalCdp?: {
+    getState: () => Promise<DesktopPreviewExternalCdpState>;
+    setEnabled: (enabled: boolean) => Promise<DesktopPreviewExternalCdpState>;
+    /** Copies in the main process, so the token stays out of the renderer. */
+    copy: (value: "endpoint" | "token") => Promise<void>;
+    disconnect: (tabId: string) => Promise<void>;
+    onStateChange: (listener: (state: DesktopPreviewExternalCdpState) => void) => () => void;
+  };
 }
 
 export type ConfirmDialogVariant = "default" | "destructive";

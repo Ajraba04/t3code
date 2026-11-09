@@ -969,6 +969,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["allow disable enable open drive preview tools sessions project override"],
   },
   {
+    id: "external-cdp",
+    title: "Outside CDP tools",
+    to: "/settings/browser",
+    searchTerms: [
+      "chrome devtools protocol mcp playwright puppeteer connectovercdp websocket endpoint token debugger",
+    ],
+    desktopOnly: true,
+  },
+  {
     id: "device-sources",
     title: "Device sources",
     to: "/settings/devices",

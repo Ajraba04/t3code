@@ -71,6 +71,7 @@ import { showPreviewPopup } from "./showPreviewPopup";
 import { PreviewChromeRow } from "./PreviewChromeRow";
 import { PreviewEmptyState } from "./PreviewEmptyState";
 import { PreviewMoreMenu, type PreviewMoreMenuActions } from "./PreviewMoreMenu";
+import { copyExternalCdp, ExternalCdpIndicator, useExternalCdpState } from "./ExternalCdp";
 import { commitBrowserViewportChange } from "~/browser/browserViewportActions";
 import { browserResponsiveViewportForToggle, useBrowserDefaults } from "~/browser/browserDefaults";
 import { BrowserDeviceToolbar } from "~/browser/BrowserDeviceToolbar";
@@ -439,6 +440,15 @@ export function PreviewView({
     useRightPanelStore.getState().close(threadRef);
   };
 
+  const externalCdp = useExternalCdpState();
+  // Only tabs the desktop draws share a debugger; headless server tabs have none here.
+  const cdpActions =
+    externalCdp?.enabled && previewBridge && (nativeServerTab || !serverOwnsRendering)
+      ? {
+          copyCdpEndpoint: () => copyExternalCdp("endpoint"),
+          copyCdpToken: () => copyExternalCdp("token"),
+        }
+      : {};
   const desktopCall = (op: ((tabId: string) => Promise<void>) | undefined) => () => {
     if (op && runtimeTabId) void op(runtimeTabId).catch(() => undefined);
   };
@@ -457,6 +467,7 @@ export function PreviewView({
               toggleNativePictureInPicture: () => handleNativePictureInPicture(),
             }
           : {}),
+        ...cdpActions,
       }
     : previewBridge
       ? {
@@ -478,6 +489,7 @@ export function PreviewView({
               .catch(() => undefined),
           openDevTools: desktopCall(previewBridge.openDevTools),
           toggleNativePictureInPicture: () => handleNativePictureInPicture(),
+          ...cdpActions,
         }
       : null;
 
@@ -934,14 +946,17 @@ export function PreviewView({
           isUnreachable ? "Page didn't load. Pick is unavailable until the page renders" : undefined
         }
         leadingActions={
-          activeProfileId !== browserDefaults.profileId ? (
-            <Tooltip>
-              <TooltipTrigger render={<Badge variant="outline" className="max-w-28 shrink-0" />}>
-                <span className="truncate">{activeProfileName}</span>
-              </TooltipTrigger>
-              <TooltipPopup side="top">{activeProfileName}</TooltipPopup>
-            </Tooltip>
-          ) : null
+          <>
+            {runtimeTabId && !isServerTab ? <ExternalCdpIndicator tabId={runtimeTabId} /> : null}
+            {activeProfileId !== browserDefaults.profileId ? (
+              <Tooltip>
+                <TooltipTrigger render={<Badge variant="outline" className="max-w-28 shrink-0" />}>
+                  <span className="truncate">{activeProfileName}</span>
+                </TooltipTrigger>
+                <TooltipPopup side="top">{activeProfileName}</TooltipPopup>
+              </Tooltip>
+            ) : null}
+          </>
         }
         trailingActions={
           moreMenuActions ? (
