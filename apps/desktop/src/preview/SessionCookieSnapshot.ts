@@ -64,6 +64,7 @@ export class SessionCookieSnapshotError extends Schema.TaggedError<SessionCookie
     operation: Schema.Literals([
       "open-channel",
       "read-cookies",
+      "set-cookie",
       "encode",
       "encrypt",
       "write",
@@ -123,12 +124,20 @@ const toCookieParam = (cookie: SnapshotCookie) => {
 };
 
 const readAllCookies = (channel: CookieChannel, file: string) =>
-  Effect.tryPromise(() => channel.send("Network.getAllCookies")).pipe(
-    Effect.flatMap(decodeAllCookies),
-    Effect.map(({ cookies }) => cookies),
-    Effect.mapError(
-      (cause) => new SessionCookieSnapshotError({ operation: "read-cookies", path: file, cause }),
+  Effect.tryPromise({
+    try: () => channel.send("Network.getAllCookies"),
+    catch: (cause) =>
+      new SessionCookieSnapshotError({ operation: "read-cookies", path: file, cause }),
+  }).pipe(
+    Effect.flatMap((response) =>
+      decodeAllCookies(response).pipe(
+        Effect.mapError(
+          (cause) =>
+            new SessionCookieSnapshotError({ operation: "read-cookies", path: file, cause }),
+        ),
+      ),
     ),
+    Effect.map(({ cookies }) => cookies),
   );
 
 export const snapshotPath = (path: Path.Path, storagePath: string): string =>
@@ -237,7 +246,11 @@ export const restore = Effect.fn("SessionCookieSnapshot.restore")(function* (
   const restored = yield* Effect.forEach(
     document.cookies.filter((cookie) => !present.has(cookieKey(cookie))),
     (cookie) =>
-      Effect.tryPromise(() => channel.send("Network.setCookie", toCookieParam(cookie))).pipe(
+      Effect.tryPromise({
+        try: () => channel.send("Network.setCookie", toCookieParam(cookie)),
+        catch: (cause) =>
+          new SessionCookieSnapshotError({ operation: "set-cookie", path: file, cause }),
+      }).pipe(
         Effect.as(1),
         Effect.orElseSucceed(() => 0),
       ),

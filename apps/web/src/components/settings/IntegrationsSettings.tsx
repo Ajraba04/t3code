@@ -1114,8 +1114,7 @@ function BrowserKeepSessionCookiesSetting({ disabled }: { readonly disabled: boo
 
   return (
     <SettingsRow
-      id="browser-keep-session-cookies"
-      title="Keep sign-ins that use session cookies"
+      {...searchableSetting("browser-keep-session-cookies")}
       description="Restore sign-ins that would end when the app quits, like Chrome's Continue where you left off. Applies to saved profiles, not Incognito."
       resetAction={
         !disabled && keep !== DEFAULT_BROWSER_KEEP_SESSION_COOKIES ? (

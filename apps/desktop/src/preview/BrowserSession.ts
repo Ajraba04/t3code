@@ -15,7 +15,6 @@ import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
-import * as DesktopShutdown from "../app/DesktopShutdown.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
@@ -211,6 +210,14 @@ const openCookieChannel = (partition: string) =>
     })),
   );
 
+export class BrowserSessionCookies extends Context.Service<
+  BrowserSessionCookies,
+  {
+    /** Saves session-cookie snapshots whose save delay has not elapsed yet; bounded for quit. */
+    readonly flushPending: Effect.Effect<void>;
+  }
+>()("@t3tools/desktop/preview/BrowserSession/BrowserSessionCookies") {}
+
 const selectSessions = (
   sessions: ReadonlyMap<string, Session>,
   partitions: ReadonlyArray<string> | undefined,
@@ -243,7 +250,6 @@ export const make = Effect.gen(function* BrowserSessionMake() {
   const crypto = yield* Digest.Digest;
   const electronDialog = yield* ElectronDialog.ElectronDialog;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
-  const shutdown = yield* DesktopShutdown.DesktopShutdown;
   const snapshotServices = yield* Effect.context<
     FileSystem.FileSystem | Path.Path | ElectronSafeStorage.ElectronSafeStorage
   >();
@@ -359,9 +365,15 @@ export const make = Effect.gen(function* BrowserSessionMake() {
         return;
       }
       // Electron's API cannot see partition keys, but it can cheaply tell when there is nothing to save.
-      const sessionCookies = yield* Effect.tryPromise(() =>
-        tracked.session.cookies.get({ session: true }),
-      );
+      const sessionCookies = yield* Effect.tryPromise({
+        try: () => tracked.session.cookies.get({ session: true }),
+        catch: (cause) =>
+          new SessionCookieSnapshot.SessionCookieSnapshotError({
+            operation: "read-cookies",
+            path: tracked.storagePath,
+            cause,
+          }),
+      });
       if (sessionCookies.length === 0) {
         yield* SessionCookieSnapshot.remove(tracked.storagePath);
         return;
@@ -411,21 +423,19 @@ export const make = Effect.gen(function* BrowserSessionMake() {
   );
 
   // Snapshots are current except for changes still inside their save delay.
-  yield* shutdown.awaitRequest.pipe(
-    Effect.andThen(
-      Effect.suspend(() =>
-        Effect.forEach(
-          [...trackedSessionCookies.values()].filter((tracked) =>
-            pendingSessionCookieSaves.has(tracked.partition),
-          ),
-          syncSessionCookieSnapshot,
-          { concurrency: "unbounded", discard: true },
-        ),
+  const flushPending = Effect.suspend(() =>
+    Effect.forEach(
+      [...trackedSessionCookies.values()].filter((tracked) =>
+        pendingSessionCookieSaves.has(tracked.partition),
       ),
+      syncSessionCookieSnapshot,
+      { concurrency: "unbounded", discard: true },
     ),
+  ).pipe(
     Effect.timeoutOption(SESSION_COOKIE_SHUTDOWN_SAVE_LIMIT),
-    Effect.withSpan("BrowserSession.saveSessionCookiesOnShutdown"),
-    Effect.forkScoped,
+    Effect.asVoid,
+    Effect.provideContext(snapshotServices),
+    Effect.withSpan("BrowserSession.flushPendingSessionCookies"),
   );
 
   const getPartition = Effect.fn("BrowserSession.getPartition")(function* (
@@ -550,7 +560,7 @@ export const make = Effect.gen(function* BrowserSessionMake() {
     });
   });
 
-  return BrowserSession.of({
+  const service = BrowserSession.of({
     getPartition,
     isPartition: (partition) =>
       partition.startsWith(PREVIEW_PARTITION_PREFIX) ||
@@ -606,6 +616,9 @@ export const make = Effect.gen(function* BrowserSessionMake() {
       );
     }),
   });
+  return Context.make(BrowserSession, service).pipe(
+    Context.add(BrowserSessionCookies, BrowserSessionCookies.of({ flushPending })),
+  );
 }).pipe(Effect.withSpan("BrowserSession.make"));
 
-export const layer = Layer.effect(BrowserSession, make);
+export const layer = Layer.effectContext(make);

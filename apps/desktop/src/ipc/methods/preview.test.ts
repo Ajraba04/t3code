@@ -12,7 +12,6 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as PreviewManager from "../../preview/Manager.ts";
 import * as SessionCookieSnapshot from "../../preview/SessionCookieSnapshot.ts";
-import * as IpcChannels from "../channels.ts";
 import * as PreviewIpc from "./preview.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
@@ -127,9 +126,6 @@ describe("preview IPC methods", () => {
               return "persist:t3code-preview-test";
             }),
           );
-        const getPreviewConfig = PreviewIpc.methods.find(
-          (method) => method.channel === IpcChannels.PREVIEW_GET_CONFIG_CHANNEL,
-        );
         let listener: DesktopIpc.DesktopIpcHandleListener | undefined;
         const ipc = DesktopIpc.make({
           removeHandler: vi.fn(),
@@ -139,7 +135,7 @@ describe("preview IPC methods", () => {
           removeAllListeners: vi.fn(),
           on: vi.fn(),
         });
-        yield* ipc.handle(getPreviewConfig!).pipe(
+        yield* ipc.handle(PreviewIpc.getPreviewConfig).pipe(
           Effect.provideService(PreviewManager.PreviewManager, {
             // The restore finishes on a later scheduler turn, after a handler that did not wait has read on.
             getBrowserSession: () =>

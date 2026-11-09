@@ -1071,6 +1071,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["agent opens browser device simulator pop into view hide"],
   },
   {
+    id: "browser-keep-session-cookies",
+    title: "Keep sign-ins that use session cookies",
+    to: "/settings/browser",
+    searchTerms: ["login logged out restart continue where you left off cookies session"],
+  },
+  {
     id: "automatic-pull",
     title: "Automatically pull",
     to: "/settings/source-control",

@@ -65,7 +65,6 @@ vi.mock("electron", () => ({
   },
 }));
 
-import * as DesktopShutdown from "../app/DesktopShutdown.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
@@ -101,7 +100,6 @@ const layerWith = (clientSettings = DesktopClientSettings.layerTest()) =>
         NodeCrypto.layer,
         layerDialog,
         layerSafeStorage,
-        DesktopShutdown.layer,
         clientSettings,
       ),
     ),

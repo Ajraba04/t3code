@@ -117,7 +117,6 @@ const persistent: SessionCookieSnapshot.CdpCookie = {
   ...hostOnly,
   name: "remember",
   session: false,
-  expires: 4_000_000_000,
 };
 const opaque: SessionCookieSnapshot.CdpCookie = { ...partitioned, partitionKeyOpaque: true };
 
