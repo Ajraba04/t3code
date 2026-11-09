@@ -242,13 +242,13 @@ it("recognizes a same-home service after a missing ID without reloading the page
   using _presentation = vi
     .spyOn(environmentPresentations, "presentationAtom")
     .mockReturnValue(presentationAtom);
-  const getHomeEnvironmentId = vi.fn<() => Promise<string | null>>().mockResolvedValue(null);
-  vi.stubGlobal("window", { desktopBridge: { getHomeEnvironmentId } });
+  const getHostEnvironmentId = vi.fn<() => Promise<string | null>>().mockResolvedValue(null);
+  vi.stubGlobal("window", { desktopBridge: { getHostEnvironmentId } });
   try {
     expect(readDesktopHomeEnvironmentId(environmentId)).toBeNull();
-    await vi.waitFor(() => expect(getHomeEnvironmentId).toHaveResolvedWith(null));
+    await vi.waitFor(() => expect(getHostEnvironmentId).toHaveResolvedWith(null));
 
-    getHomeEnvironmentId.mockResolvedValue(environmentId);
+    getHostEnvironmentId.mockResolvedValue(environmentId);
     appAtomRegistry.set(presentationAtom, {
       ...presentation,
       connection: { phase: "connected", error: null, traceId: null },
@@ -257,10 +257,10 @@ it("recognizes a same-home service after a missing ID without reloading the page
       expect(readDesktopHomeEnvironmentId(environmentId)).toBe(environmentId);
     });
 
-    const callsAfterConnecting = getHomeEnvironmentId.mock.calls.length;
+    const callsAfterConnecting = getHostEnvironmentId.mock.calls.length;
     appAtomRegistry.set(presentationAtom, { ...presentation, serverConfig: null });
     expect(readDesktopHomeEnvironmentId(environmentId)).toBe(environmentId);
-    expect(getHomeEnvironmentId).toHaveBeenCalledTimes(callsAfterConnecting);
+    expect(getHostEnvironmentId).toHaveBeenCalledTimes(callsAfterConnecting);
 
     appAtomRegistry.set(presentationAtom, {
       ...presentation,
@@ -270,7 +270,7 @@ it("recognizes a same-home service after a missing ID without reloading the page
       },
     });
     expect(readDesktopHomeEnvironmentId(environmentId)).toBeNull();
-    expect(getHomeEnvironmentId).toHaveBeenCalledTimes(callsAfterConnecting);
+    expect(getHostEnvironmentId).toHaveBeenCalledTimes(callsAfterConnecting);
   } finally {
     appAtomRegistry.dispose();
     vi.unstubAllGlobals();
