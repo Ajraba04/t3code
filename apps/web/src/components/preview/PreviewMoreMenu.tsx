@@ -37,6 +37,9 @@ export interface PreviewMoreMenuActions {
   readonly clearCache: () => void;
   readonly openDevTools?: () => void;
   readonly toggleNativePictureInPicture?: () => void;
+  /** Present while the desktop's local CDP endpoint is on. */
+  readonly copyCdpEndpoint?: () => void;
+  readonly copyCdpToken?: () => void;
 }
 
 interface Props {
@@ -90,6 +93,12 @@ export function PreviewMoreMenu({
           <MenuItem onClick={actions.openDevTools} disabled={disabled}>
             Open DevTools
           </MenuItem>
+        ) : null}
+        {actions.copyCdpEndpoint ? (
+          <MenuItem onClick={actions.copyCdpEndpoint}>Copy CDP endpoint</MenuItem>
+        ) : null}
+        {actions.copyCdpToken ? (
+          <MenuItem onClick={actions.copyCdpToken}>Copy CDP token</MenuItem>
         ) : null}
         {actions.toggleNativePictureInPicture ? (
           <MenuItem onClick={actions.toggleNativePictureInPicture} disabled={disabled}>

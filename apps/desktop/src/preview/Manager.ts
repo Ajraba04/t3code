@@ -65,6 +65,7 @@ import {
   PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL,
 } from "../ipc/channels.ts";
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
+import * as ExternalCdp from "./ExternalCdp.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import {
@@ -540,6 +541,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const random = yield* SecureRandom.SecureRandom;
   const parentScope = yield* Scope.Scope;
   const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
+  const externalCdp = yield* Effect.serviceOption(ExternalCdp.ExternalCdp);
   const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
   const context = yield* Effect.context<never>();
   const runFork = Effect.runForkWith(context);
@@ -1011,6 +1013,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     closedServerTab?: PreviewTabState["serverTab"],
   ) {
     if (closedServerTab) browserHost.detach(closedServerTab);
+    if (Option.isSome(externalCdp)) externalCdp.value.unregister(control.webContentsId);
     for (const tab of (yield* SynchronizedRef.get(tabsRef)).values()) {
       if (tab.webContentsId === control.webContentsId && tab.serverTab) {
         browserHost.detach(tab.serverTab);
@@ -2332,6 +2335,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       if (afterAttach?.webContentsId !== wc.id) {
         yield* detachControlSession(wc.id);
         return;
+      }
+      // Before T3's relay can enable Runtime, so outside clients learn every execution context.
+      if (Option.isSome(externalCdp)) {
+        externalCdp.value.register(tabId, { webContents: wc, debugger: control.debugger });
       }
       if (afterAttach.serverTab) {
         yield* listenToBrowserHost;

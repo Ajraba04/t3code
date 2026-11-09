@@ -122,6 +122,11 @@ export const PREVIEW_RECORDING_SAVE_CHANNEL = "desktop:preview-recording-save";
 export const PREVIEW_STATE_CHANGE_CHANNEL = "desktop:preview-state-change";
 export const PREVIEW_POINTER_EVENT_CHANNEL = "desktop:preview-pointer-event";
 export const PREVIEW_OPEN_LINK_CHANNEL = "desktop:preview-open-link";
+export const PREVIEW_EXTERNAL_CDP_GET_STATE_CHANNEL = "desktop:preview-external-cdp-get-state";
+export const PREVIEW_EXTERNAL_CDP_SET_ENABLED_CHANNEL = "desktop:preview-external-cdp-set-enabled";
+export const PREVIEW_EXTERNAL_CDP_COPY_CHANNEL = "desktop:preview-external-cdp-copy";
+export const PREVIEW_EXTERNAL_CDP_DISCONNECT_CHANNEL = "desktop:preview-external-cdp-disconnect";
+export const PREVIEW_EXTERNAL_CDP_STATE_CHANNEL = "desktop:preview-external-cdp-state";
 
 export const MAC_PERMISSION_HELPER_CHANNEL = "desktop:mac-permission-helper";
 
