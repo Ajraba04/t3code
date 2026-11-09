@@ -24,6 +24,7 @@ import {
   type PreviewAutomationNavigateInput,
   type PreviewAutomationNetworkEntry,
   type PreviewAutomationOpenInput,
+  type PreviewAutomationPerformanceInput,
   type PreviewAutomationPressInput,
   type PreviewAutomationRequest,
   type PreviewAutomationResizeInput,
@@ -82,6 +83,7 @@ import * as DesktopBrowserChannel from "./DesktopBrowserChannel.ts";
 import * as PreviewAgentActivity from "./PreviewAgentActivity.ts";
 import * as PreviewManager from "./Manager.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
+import * as ServerBrowserPerformance from "./ServerBrowserPerformance.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
@@ -2293,6 +2295,17 @@ const make = Effect.gen(function* () {
         const recording = await startRecording(tab);
         return { tabId: tab.tabId, recording: true, startedAt: recording.startedAt };
       }
+      case "performance":
+        return ServerBrowserPerformance.performance(
+          {
+            tabId: tab.tabId,
+            threadId: tab.threadId,
+            page: tab.page,
+            openSession: () => tab.page.context().newCDPSession(tab.page),
+          },
+          input as PreviewAutomationPerformanceInput,
+          { directory: config.attachmentsDir },
+        );
     }
   };
 

@@ -51,6 +51,7 @@ export const PREVIEW_AUTOMATION_SERVER_OPERATIONS = [
   "hover",
   "select",
   "drag",
+  "performance",
 ] as const;
 export const PreviewAutomationOperation = Schema.Literals(PREVIEW_AUTOMATION_SERVER_OPERATIONS);
 export type PreviewAutomationOperation = typeof PreviewAutomationOperation.Type;
@@ -582,6 +583,40 @@ export const PreviewAutomationRecordingArtifact = Schema.Struct({
   createdAt: Schema.String,
 });
 export type PreviewAutomationRecordingArtifact = typeof PreviewAutomationRecordingArtifact.Type;
+
+export const PREVIEW_PERFORMANCE_STOP_TIMEOUT_MS = 60_000;
+
+export const PreviewAutomationPerformanceInput = Schema.Struct({
+  ...PreviewAutomationTabTargetFields,
+  action: Schema.Literals(["start", "stop"]),
+});
+export type PreviewAutomationPerformanceInput = typeof PreviewAutomationPerformanceInput.Type;
+
+/** Durations cover the traced interval; heap and nodes are read at stop. Web vitals need a load or shift inside the trace. */
+export const PreviewAutomationPerformanceMetrics = Schema.Struct({
+  taskMs: Schema.optional(Schema.Number),
+  scriptMs: Schema.optional(Schema.Number),
+  layoutMs: Schema.optional(Schema.Number),
+  jsHeapUsedBytes: Schema.optional(Schema.Number),
+  nodes: Schema.optional(Schema.Number),
+  largestContentfulPaintMs: Schema.optional(Schema.Number),
+  cumulativeLayoutShift: Schema.optional(Schema.Number),
+});
+export type PreviewAutomationPerformanceMetrics = typeof PreviewAutomationPerformanceMetrics.Type;
+
+export const PreviewAutomationPerformanceResult = Schema.Struct({
+  tabId: PreviewTabId,
+  tracing: Schema.Boolean,
+  startedAt: Schema.String,
+  /** The fields below are set by stop. */
+  durationMs: Schema.optional(Schema.Int),
+  path: Schema.optional(Schema.String),
+  sizeBytes: Schema.optional(Schema.Int),
+  /** Chromium's trace buffer filled, so the trace misses its latest events. */
+  dataLoss: Schema.optional(Schema.Boolean),
+  metrics: Schema.optional(PreviewAutomationPerformanceMetrics),
+});
+export type PreviewAutomationPerformanceResult = typeof PreviewAutomationPerformanceResult.Type;
 
 export const PreviewAutomationClientId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 export type PreviewAutomationClientId = typeof PreviewAutomationClientId.Type;

@@ -8,6 +8,8 @@ import {
   PreviewAutomationEvaluateInput,
   PreviewAutomationNavigateInput,
   PreviewAutomationOpenInput,
+  PreviewAutomationPerformanceInput,
+  PreviewAutomationPerformanceResult,
   PreviewAutomationRecordingArtifact,
   PreviewAutomationRecordingStatus,
   PreviewAutomationResizeInput,
@@ -222,6 +224,17 @@ const PreviewRecordingStopTool = safeBrowserTool(
   }).annotate(Tool.Title, "Stop browser recording"),
 );
 
+const PreviewPerformanceTool = safeBrowserTool(
+  Tool.make("preview_performance", {
+    description:
+      "Trace the chosen tab's performance: `start`, do the slow step, then `stop`. Stop returns a Chrome trace path (max 50 MiB) plus task, script and layout time, heap, DOM nodes, LCP, and CLS. Needs your tab, or an unclaimed one.",
+    parameters: PreviewAutomationPerformanceInput,
+    success: Schema.Struct({ ...PreviewAutomationPerformanceResult.fields, ...presentationFields }),
+    failure: PreviewToolFailure,
+    dependencies,
+  }).annotate(Tool.Title, "Trace preview performance"),
+);
+
 export const PreviewToolkit = Toolkit.make(
   PreviewDialogTool,
   PreviewStatusTool,
@@ -235,6 +248,7 @@ export const PreviewToolkit = Toolkit.make(
   PreviewWaitForTool,
   PreviewRecordingStartTool,
   PreviewRecordingStopTool,
+  PreviewPerformanceTool,
 );
 
 export const PreviewStandardToolkit = Toolkit.make(
@@ -249,6 +263,7 @@ export const PreviewStandardToolkit = Toolkit.make(
   PreviewWaitForTool,
   PreviewRecordingStartTool,
   PreviewRecordingStopTool,
+  PreviewPerformanceTool,
 );
 
 export const PreviewSnapshotToolkit = Toolkit.make(PreviewSnapshotTool);

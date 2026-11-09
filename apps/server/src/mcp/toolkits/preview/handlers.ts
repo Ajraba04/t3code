@@ -4,6 +4,7 @@ import * as Record from "effect/Record";
 import * as Schema from "effect/Schema";
 import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
+  PREVIEW_PERFORMANCE_STOP_TIMEOUT_MS,
   PREVIEW_RECORDING_STOP_TIMEOUT_MS,
   PreviewAutomationRecordingTransferError,
   PreviewAutomationRecordingDesktopUpdateRequiredError,
@@ -14,6 +15,7 @@ import {
   type ThreadId,
   type PreviewAutomationOperation,
   type PreviewAutomationOpenInput,
+  type PreviewAutomationPerformanceResult,
   type PreviewAutomationRecordingStatus,
   type PreviewAutomationResizeResult,
   type PreviewAutomationSetColorSchemeResult,
@@ -269,6 +271,14 @@ const handlers = {
       const artifact = yield* claimPreviewRecording(scope.thread.threadId, response.result);
       return { ...artifact, ...(response.toolIcon ? { toolIcon: response.toolIcon } : {}) };
     }),
+  ),
+  // Stop reads a trace of up to 50 MiB back from the browser.
+  preview_performance: McpToolAccess.actsAsCaller((input) =>
+    invokeTargeted<PreviewAutomationPerformanceResult>(
+      "performance",
+      input,
+      input.action === "stop" ? PREVIEW_PERFORMANCE_STOP_TIMEOUT_MS : undefined,
+    ),
   ),
 } satisfies McpToolAccess.Handlers<typeof PreviewToolkit.tools>;
 
