@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - The service under test writes traces with node:fs outside the Effect runtime.
 import * as NodeEvents from "node:events";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
