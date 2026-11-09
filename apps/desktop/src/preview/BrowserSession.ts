@@ -1,20 +1,33 @@
+import { DEFAULT_BROWSER_KEEP_SESSION_COOKIES } from "@t3tools/contracts";
 import type { Session, WebContents } from "electron";
-import { BrowserWindow, session } from "electron";
+import { BrowserWindow, WebContentsView, session } from "electron";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
+import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
+import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
+import * as SessionCookieSnapshot from "./SessionCookieSnapshot.ts";
 
 const PREVIEW_PARTITION_PREFIX = "persist:t3code-preview-";
 /** Ephemeral partitions omit persist: but retain a product prefix so the webview gate recognizes them. */
 const PREVIEW_EPHEMERAL_PARTITION_PREFIX = "t3code-preview-ephemeral-";
 const PROFILE_PARTITION_MARKER = "profile-";
+// Coalesces bursts of cookie changes without resetting, so a write is never more than this late.
+const SESSION_COOKIE_SAVE_DELAY = Duration.seconds(3);
+// Shutdown waits on this only as long as the rest of quit takes anyway.
+const SESSION_COOKIE_SHUTDOWN_SAVE_LIMIT = Duration.seconds(3);
 
 export type BrowserSessionPartitionNamespace = "profile";
 
@@ -160,6 +173,51 @@ export class BrowserSession extends Context.Service<
   }
 >()("@t3tools/desktop/preview/BrowserSession") {}
 
+/**
+ * A hidden page in the partition with its own debugger, because guests' debuggers belong to
+ * PreviewManager. A WebContentsView, unlike a window, never counts toward window-all-closed.
+ */
+const openCookieChannel = (partition: string) =>
+  Effect.acquireRelease(
+    Effect.tryPromise({
+      try: async () => {
+        const view = new WebContentsView({
+          webPreferences: { partition, sandbox: true, javascript: false },
+        });
+        try {
+          await view.webContents.loadURL("about:blank");
+          view.webContents.debugger.attach("1.3");
+          return view;
+        } catch (cause) {
+          view.webContents.close();
+          throw cause;
+        }
+      },
+      catch: (cause) =>
+        new SessionCookieSnapshot.SessionCookieSnapshotError({
+          operation: "open-channel",
+          path: partition,
+          cause,
+        }),
+    }),
+    (view) =>
+      Effect.sync(() => {
+        if (!view.webContents.isDestroyed()) view.webContents.close();
+      }),
+  ).pipe(
+    Effect.map((view): SessionCookieSnapshot.CookieChannel => ({
+      send: (method, params) => view.webContents.debugger.sendCommand(method, params),
+    })),
+  );
+
+export class BrowserSessionCookies extends Context.Service<
+  BrowserSessionCookies,
+  {
+    /** Saves session-cookie snapshots whose save delay has not elapsed yet; bounded for quit. */
+    readonly flushPending: Effect.Effect<void>;
+  }
+>()("@t3tools/desktop/preview/BrowserSession/BrowserSessionCookies") {}
+
 const selectSessions = (
   sessions: ReadonlyMap<string, Session>,
   partitions: ReadonlyArray<string> | undefined,
@@ -191,7 +249,11 @@ const previewHostWindow = (guest: WebContents | null): BrowserWindow | undefined
 export const make = Effect.gen(function* BrowserSessionMake() {
   const crypto = yield* Digest.Digest;
   const electronDialog = yield* ElectronDialog.ElectronDialog;
-  const runFork = Effect.runForkWith(yield* Effect.context<never>());
+  const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
+  const snapshotServices = yield* Effect.context<
+    FileSystem.FileSystem | Path.Path | ElectronSafeStorage.ElectronSafeStorage
+  >();
+  const runFork = Effect.runForkWith(snapshotServices);
   // One prompt at a time, so a page cannot stack dialogs by looping a deep link.
   let permissionPromptOpen = false;
   /** Settles with `undefined` when the user gave no answer: another prompt was open or the dialog failed. */
@@ -259,6 +321,123 @@ export const make = Effect.gen(function* BrowserSessionMake() {
   };
   const sessionsRef = yield* SynchronizedRef.make<ReadonlyMap<string, Session>>(new Map());
 
+  interface TrackedSessionCookies {
+    readonly partition: string;
+    readonly storagePath: string;
+    readonly session: Session;
+    readonly restored: Deferred.Deferred<void>;
+  }
+  const trackedSessionCookies = new Map<string, TrackedSessionCookies>();
+  const pendingSessionCookieSaves = new Set<string>();
+
+  const keepSessionCookies = Effect.gen(function* () {
+    const settings = yield* clientSettings.get.pipe(Effect.orElseSucceed(() => Option.none()));
+    const enabled = Option.match(settings, {
+      onNone: () => DEFAULT_BROWSER_KEEP_SESSION_COOKIES,
+      onSome: (value) => value.browserKeepSessionCookies,
+    });
+    return enabled && (yield* SessionCookieSnapshot.isEncryptionUsable);
+  });
+
+  const restoreSessionCookies = Effect.fn("BrowserSession.restoreSessionCookies")(
+    function* (tracked: TrackedSessionCookies) {
+      if (!(yield* keepSessionCookies)) {
+        yield* SessionCookieSnapshot.remove(tracked.storagePath);
+        return;
+      }
+      if (!(yield* SessionCookieSnapshot.hasSnapshot(tracked.storagePath))) return;
+      const restored = yield* Effect.scoped(
+        Effect.flatMap(openCookieChannel(tracked.partition), (channel) =>
+          SessionCookieSnapshot.restore(tracked.storagePath, channel),
+        ),
+      );
+      yield* Effect.annotateCurrentSpan({ restored });
+    },
+    Effect.catchCause((cause) => Effect.logWarning("Could not restore session cookies.", cause)),
+  );
+
+  const syncSessionCookieSnapshot = Effect.fn("BrowserSession.syncSessionCookieSnapshot")(
+    function* (tracked: TrackedSessionCookies) {
+      // A save before restore finishes would replace the snapshot with a partial jar.
+      yield* Deferred.await(tracked.restored);
+      if (!(yield* keepSessionCookies)) {
+        yield* SessionCookieSnapshot.remove(tracked.storagePath);
+        return;
+      }
+      // Electron's API cannot see partition keys, but it can cheaply tell when there is nothing to save.
+      const sessionCookies = yield* Effect.tryPromise({
+        try: () => tracked.session.cookies.get({ session: true }),
+        catch: (cause) =>
+          new SessionCookieSnapshot.SessionCookieSnapshotError({
+            operation: "read-cookies",
+            path: tracked.storagePath,
+            cause,
+          }),
+      });
+      if (sessionCookies.length === 0) {
+        yield* SessionCookieSnapshot.remove(tracked.storagePath);
+        return;
+      }
+      const saved = yield* Effect.scoped(
+        Effect.flatMap(openCookieChannel(tracked.partition), (channel) =>
+          SessionCookieSnapshot.save(tracked.storagePath, channel),
+        ),
+      );
+      yield* Effect.annotateCurrentSpan({ saved });
+    },
+    Effect.catchCause((cause) => Effect.logWarning("Could not save session cookies.", cause)),
+  );
+
+  const scheduleSessionCookieSave = (partition: string, tracked: TrackedSessionCookies): void => {
+    if (pendingSessionCookieSaves.has(partition)) return;
+    pendingSessionCookieSaves.add(partition);
+    runFork(
+      Effect.sleep(SESSION_COOKIE_SAVE_DELAY).pipe(
+        Effect.andThen(Effect.sync(() => pendingSessionCookieSaves.delete(partition))),
+        Effect.andThen(syncSessionCookieSnapshot(tracked)),
+      ),
+    );
+  };
+
+  const trackSessionCookies = Effect.fn("BrowserSession.trackSessionCookies")(
+    function* (partition: string, browserSession: Session) {
+      const storagePath: unknown = browserSession.storagePath;
+      if (typeof storagePath !== "string") return;
+      const tracked: TrackedSessionCookies = {
+        partition,
+        storagePath,
+        session: browserSession,
+        restored: yield* SessionCookieSnapshot.markRestoring(browserSession),
+      };
+      trackedSessionCookies.set(partition, tracked);
+      browserSession.cookies.on("changed", (_event, cookie) => {
+        if (cookie.session === true) scheduleSessionCookieSave(partition, tracked);
+      });
+      runFork(
+        restoreSessionCookies(tracked).pipe(
+          Effect.ensuring(Deferred.succeed(tracked.restored, undefined)),
+        ),
+      );
+    },
+    Effect.catchCause((cause) => Effect.logWarning("Could not track session cookies.", cause)),
+  );
+
+  // Snapshots are current except for changes still inside their save delay.
+  const flushPending = Effect.suspend(() =>
+    Effect.forEach(
+      [...trackedSessionCookies.values()].filter((tracked) =>
+        pendingSessionCookieSaves.has(tracked.partition),
+      ),
+      syncSessionCookieSnapshot,
+      { concurrency: "unbounded", discard: true },
+    ),
+  ).pipe(
+    Effect.timeoutOption(SESSION_COOKIE_SHUTDOWN_SAVE_LIMIT),
+    Effect.asVoid,
+    Effect.provideContext(snapshotServices),
+    Effect.withSpan("BrowserSession.flushPendingSessionCookies"),
+  );
+
   const getPartition = Effect.fn("BrowserSession.getPartition")(function* (
     scope = "shared",
     persistent = true,
@@ -286,7 +465,7 @@ export const make = Effect.gen(function* BrowserSessionMake() {
     return yield* SynchronizedRef.modifyEffect(sessionsRef, (sessions) => {
       const existing = sessions.get(partition);
       if (existing) return Effect.succeed([existing, sessions] as const);
-      return Effect.try({
+      const created = Effect.try({
         try: () => {
           const browserSession = session.fromPartition(partition);
           // Like Chrome, clipboard reads ask once per origin; both answers last for the session.
@@ -372,10 +551,16 @@ export const make = Effect.gen(function* BrowserSessionMake() {
             cause,
           }),
       });
+      // Tracking inside the lock registers the restore before any caller can see the session.
+      return persistent
+        ? created.pipe(
+            Effect.tap(([browserSession]) => trackSessionCookies(partition, browserSession)),
+          )
+        : created;
     });
   });
 
-  return BrowserSession.of({
+  const service = BrowserSession.of({
     getPartition,
     isPartition: (partition) =>
       partition.startsWith(PREVIEW_PARTITION_PREFIX) ||
@@ -396,7 +581,21 @@ export const make = Effect.gen(function* BrowserSessionMake() {
                 partition,
                 cause,
               }),
-          }),
+          }).pipe(
+            Effect.andThen(
+              Effect.suspend(() => {
+                const tracked = trackedSessionCookies.get(partition);
+                return tracked === undefined
+                  ? Effect.void
+                  : SessionCookieSnapshot.remove(tracked.storagePath).pipe(
+                      Effect.provideContext(snapshotServices),
+                      Effect.mapError(
+                        (cause) => new BrowserSessionStorageClearError({ partition, cause }),
+                      ),
+                    );
+              }),
+            ),
+          ),
         { concurrency: "unbounded", discard: true },
       );
     }),
@@ -417,6 +616,9 @@ export const make = Effect.gen(function* BrowserSessionMake() {
       );
     }),
   });
+  return Context.make(BrowserSession, service).pipe(
+    Context.add(BrowserSessionCookies, BrowserSessionCookies.of({ flushPending })),
+  );
 }).pipe(Effect.withSpan("BrowserSession.make"));
 
-export const layer = Layer.effect(BrowserSession, make);
+export const layer = Layer.effectContext(make);

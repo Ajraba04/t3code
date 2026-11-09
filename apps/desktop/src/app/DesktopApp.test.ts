@@ -68,6 +68,7 @@ import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as MacPermissions from "../permissions/MacPermissions.ts";
+import * as BrowserSession from "../preview/BrowserSession.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 
 it.effect.each([false, true])(
@@ -79,6 +80,7 @@ it.effect.each([false, true])(
       const registrationStopped = yield* Deferred.make<void>();
       const windowStarted = yield* Deferred.make<void>();
       const firstStopStarted = yield* Deferred.make<void>();
+      const sessionCookiesFlushed = yield* Deferred.make<void>();
       const secondStopStarted = yield* Deferred.make<void>();
       const releaseStops = yield* Deferred.make<void>();
       const historyStarted = yield* Deferred.make<void>();
@@ -163,6 +165,9 @@ it.effect.each([false, true])(
           Effect.provideService(DesktopSnapShot.DesktopSnapShot, {
             initialize: Effect.void,
           } as DesktopSnapShot.DesktopSnapShot["Service"]),
+          Effect.provideService(BrowserSession.BrowserSessionCookies, {
+            flushPending: Deferred.succeed(sessionCookiesFlushed, undefined).pipe(Effect.asVoid),
+          }),
           Effect.provideService(DesktopState.DesktopState, {
             quitting,
           } as DesktopState.DesktopState["Service"]),
@@ -254,6 +259,7 @@ it.effect.each([false, true])(
       yield* shutdown.request;
       yield* Deferred.await(firstStopStarted);
       yield* Deferred.await(secondStopStarted);
+      yield* Deferred.await(sessionCookiesFlushed);
       assert.isFalse(yield* Deferred.isDone(historyStarted));
       assert.isFalse(yield* shutdown.isComplete);
       yield* Deferred.succeed(releaseStops, undefined);

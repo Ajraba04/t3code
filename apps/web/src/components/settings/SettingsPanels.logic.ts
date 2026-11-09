@@ -117,6 +117,7 @@ export type BrowserDefaultSettings = Pick<
   | "browserSearchEngine"
   | "browserCustomSearchUrl"
   | "browserAutoShowFloatingPreview"
+  | "browserKeepSessionCookies"
   | "pullRequestLinksOpenInApp"
 >;
 
@@ -161,6 +162,9 @@ export function getChangedBrowserSettingLabels(settings: BrowserDefaultSettings)
     ...(settings.browserAutoShowFloatingPreview !==
     DEFAULT_UNIFIED_SETTINGS.browserAutoShowFloatingPreview
       ? ["Floating preview"]
+      : []),
+    ...(settings.browserKeepSessionCookies !== DEFAULT_UNIFIED_SETTINGS.browserKeepSessionCookies
+      ? ["Keep session sign-ins"]
       : []),
     ...(settings.pullRequestLinksOpenInApp !== DEFAULT_UNIFIED_SETTINGS.pullRequestLinksOpenInApp
       ? ["Open pull requests in T3 Code"]

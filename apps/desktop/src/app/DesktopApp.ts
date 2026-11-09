@@ -18,6 +18,7 @@ import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopCliCommand from "./DesktopCliCommand.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
+import * as BrowserSession from "../preview/BrowserSession.ts";
 import * as PreviewPasskeys from "../preview/Passkeys.ts";
 import * as DesktopBackendManager from "../backend/DesktopBackendManager.ts";
 import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
@@ -371,9 +372,15 @@ const scopedProgram = Effect.scoped(
     const shutdown = yield* DesktopShutdown.DesktopShutdown;
     const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
 
+    const sessionCookies = yield* BrowserSession.BrowserSessionCookies;
+
     yield* Effect.addFinalizer(() =>
       // Quit can outrun layer finalizers; stop pooled backends here so they receive SIGTERM before OS teardown.
-      stopAllPoolInstances().pipe(
+      // Session-cookie snapshots are saved alongside, before quit is allowed to proceed.
+      Effect.all([stopAllPoolInstances(), sessionCookies.flushPending], {
+        concurrency: "unbounded",
+        discard: true,
+      }).pipe(
         Effect.ensuring(rendererHistory.shutdown),
         Effect.ensuring(shutdown.markComplete),
         Effect.withSpan("desktop.app.shutdown"),

@@ -37,6 +37,7 @@ import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import { normalizeCaptureFailure } from "../../preview/captureErrors.ts";
+import * as SessionCookieSnapshot from "../../preview/SessionCookieSnapshot.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
 import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts";
 import * as IpcChannels from "../channels.ts";
@@ -304,7 +305,7 @@ const resolveClearPartitions = Effect.fn("desktop.ipc.preview.resolveClearPartit
   return [yield* manager.getBrowserPartition(scope, persistent, namespace)];
 });
 
-const getPreviewConfig = DesktopIpc.makeIpcMethod({
+export const getPreviewConfig = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.PREVIEW_GET_CONFIG_CHANNEL,
   payload: DesktopPreviewConfigInputSchema,
   result: DesktopPreviewWebviewConfigSchema,
@@ -312,7 +313,9 @@ const getPreviewConfig = DesktopIpc.makeIpcMethod({
     const manager = yield* PreviewManager.PreviewManager;
     const { scope, persistent, namespace } = resolvePartitionScope(environmentId, profileId);
     // Session creation installs UA and permission handlers before a guest can attach.
-    yield* manager.getBrowserSession(scope, persistent, namespace);
+    const browserSession = yield* manager.getBrowserSession(scope, persistent, namespace);
+    // Session cookies must be back before the guest's first request or it loads signed out.
+    yield* SessionCookieSnapshot.awaitRestored(browserSession);
     return {
       partition: yield* manager.getBrowserPartition(scope, persistent, namespace),
       webPreferences: PREVIEW_WEBVIEW_PREFERENCES,

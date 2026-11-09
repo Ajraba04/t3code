@@ -5,11 +5,13 @@ import {
   PreviewCaptureFailure,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import * as PreviewManager from "../../preview/Manager.ts";
+import * as SessionCookieSnapshot from "../../preview/SessionCookieSnapshot.ts";
 import * as PreviewIpc from "./preview.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
@@ -110,6 +112,51 @@ describe("preview IPC methods", () => {
   beforeEach(() => {
     fromPartition.mockClear();
   });
+
+  effectIt.effect("hands out a guest's partition only after its session cookies are restored", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const browserSession = {} as Electron.Session;
+        const restored = yield* SessionCookieSnapshot.markRestoring(browserSession);
+        const restoredWhenPartitionRead: Array<boolean> = [];
+        const getBrowserPartition = () =>
+          Deferred.isDone(restored).pipe(
+            Effect.map((done) => {
+              restoredWhenPartitionRead.push(done);
+              return "persist:t3code-preview-test";
+            }),
+          );
+        let listener: DesktopIpc.DesktopIpcHandleListener | undefined;
+        const ipc = DesktopIpc.make({
+          removeHandler: vi.fn(),
+          handle: (_channel, registered) => {
+            listener = registered;
+          },
+          removeAllListeners: vi.fn(),
+          on: vi.fn(),
+        });
+        yield* ipc.handle(PreviewIpc.getPreviewConfig).pipe(
+          Effect.provideService(PreviewManager.PreviewManager, {
+            // The restore finishes on a later scheduler turn, after a handler that did not wait has read on.
+            getBrowserSession: () =>
+              Deferred.succeed(restored, undefined).pipe(
+                Effect.forkDetach,
+                Effect.as(browserSession),
+              ),
+            getBrowserPartition,
+          } as unknown as PreviewManager.PreviewManager["Service"]),
+        );
+
+        const config = yield* Effect.promise(async () =>
+          structuredClone(await listener!({ sender: { id: 7 } }, { environmentId: "env-a" })),
+        );
+        expect(config).toMatchObject({
+          partition: "persist:t3code-preview-test",
+        });
+        expect(restoredWhenPartitionRead).toEqual([true]);
+      }),
+    ),
+  );
 
   it("derives distinct partition scopes when identifiers contain the delimiter", () => {
     const first = PreviewIpc.resolvePartitionScope("a", "b::c");
