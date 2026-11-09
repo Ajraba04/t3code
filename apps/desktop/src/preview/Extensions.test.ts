@@ -1,11 +1,12 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import type { ManagedPolicyDocument } from "@t3tools/contracts";
+import { DEFAULT_CLIENT_SETTINGS, type ManagedPolicyDocument } from "@t3tools/contracts";
 import { ManagedPolicyFileError } from "@t3tools/shared/managedPolicyFile";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { vi } from "vite-plus/test";
 
@@ -20,7 +21,9 @@ vi.mock("electron", () => ({
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopManagedPolicy from "../app/DesktopManagedPolicy.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
+import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import { resolvePartitionScope } from "../ipc/methods/preview.ts";
+import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as BrowserSession from "./BrowserSession.ts";
 import * as BrowserExtensions from "./Extensions.ts";
 
@@ -214,6 +217,18 @@ describe("BrowserSession extension hook", () => {
         Layer.provide(
           Layer.mergeAll(
             layerTest,
+            DesktopClientSettings.layerTest(
+              Option.some({ ...DEFAULT_CLIENT_SETTINGS, browserKeepSessionCookies: false }),
+            ),
+            Layer.succeed(
+              ElectronSafeStorage.ElectronSafeStorage,
+              ElectronSafeStorage.ElectronSafeStorage.of({
+                isEncryptionAvailable: Effect.succeed(false),
+                encryptString: () => Effect.die("unused"),
+                decryptString: () => Effect.die("unused"),
+                selectedStorageBackend: Effect.succeedNone,
+              }),
+            ),
             Layer.succeed(ElectronDialog.ElectronDialog, {
               pickFolder: () => Effect.die("unused"),
               pickFiles: () => Effect.die("unused"),
